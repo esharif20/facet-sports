@@ -6,13 +6,9 @@ files are left unchanged so organiser fixes merge cleanly with `git pull upstrea
 
 ## Team quickstart
 
-1. **Keep the data outside the repo.** The match data is licensed and this repo is public, so
-   it must never be committed. Unpack the bundle to `~/data/mtah2027/` (one folder each for
-   `tactical/` and `broadcast/`, as in [DATA.md](DATA.md)) and point the code at it:
-
-   ```bash
-   export MTAH_DATA_DIR=~/data/mtah2027
-   ```
+1. **Put the data in `data/`.** Unpack the files into `data/tactical/` and `data/broadcast/`,
+   keeping their names (layout in [DATA.md](DATA.md)). Everything in `data/` is gitignored. The
+   match data is licensed and this repo is public, so never force-add any of it.
 
 2. **Environment** (Python 3.11, pinned versions in `requirements.lock`):
 
