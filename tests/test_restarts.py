@@ -4,7 +4,7 @@ from facet import decode, restarts
 
 
 def test_restart_evidence_shape():
-    team, dead = restarts.evidence(1000, [(500, 1), (800, None)])
+    team, dead = restarts.evidence(1000, [(500, 1), (800, None)], team_weight=0.5)
     m, b, a = restarts.MARGIN, restarts.BEFORE, restarts.AFTER
     assert dead[500 - m - 1] > 0 and dead[500 + m] < 0          # dead before, live after
     assert dead[500] == 0                                        # the tagged moment is left alone
@@ -20,13 +20,16 @@ def test_restart_tips_a_close_call_but_not_clear_play():
     dead[150:300] = 1.0
     restart = [(300 + restarts.MARGIN, 0)]
     add_team, add_dead = restarts.evidence(n, restart)
-    plain = decode.viterbi(decode.emissions(team, dead))
-    tagged = decode.viterbi(decode.emissions(team + add_team, dead + add_dead))
+    # switch costs pinned so the test checks the restart evidence, not the decoder's tuning
+    switch = dict(switch_team=6.0, switch_dead=80.0)
+    plain = decode.viterbi(decode.emissions(team, dead, 1.0, 0.5), **switch)
+    tagged = decode.viterbi(decode.emissions(team + add_team, dead + add_dead, 1.0, 0.5), **switch)
     assert (plain == decode.D).sum() == 0
     assert (tagged[200:290] == decode.D).all() and (tagged[320:] != decode.D).all()
     # where tracking clearly says play is live, one tag does not create a stoppage
     clear = np.full(n, -2.0)
-    assert (decode.viterbi(decode.emissions(team + add_team, clear + add_dead)) == decode.D).sum() == 0
+    assert (decode.viterbi(decode.emissions(team + add_team, clear + add_dead, 1.0, 0.5),
+                           **switch) == decode.D).sum() == 0
 
 
 def test_like_smart_tagging_drops_shifts_and_hides_throw_in_teams():

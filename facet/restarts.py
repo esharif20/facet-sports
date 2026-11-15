@@ -15,22 +15,26 @@ tracking, and the weights are small enough that tracking which clearly disagrees
 
 The weights were chosen with `python -m facet.bench restarts` on Metrica's open sample games,
 whose real set pieces are first made as unreliable as Smart Tagging (like_smart_tagging below).
-There it lifts spellF1 from 0.554 to 0.564 (macroF1 0.772 to 0.778). With much worse tagging (half missed, 2 s timing error,
-20% invented) it neither helps nor hurts, which is why the weights are not set higher: weight 4
-scores a little more with good tags but loses with bad ones. The bench is optimistic, because the
-sample games' dead-ball labels are themselves cut at set pieces. Nothing here looks at the
-competition ground truth.
+There it lifts spellF1 from 0.716 to 0.722 (macroF1 0.904 to 0.905). An earlier check, before
+the ownership model learned from touches and team shape, found that much worse tagging (half
+missed, 2 s timing error, 20% invented) neither helped nor hurt at this dead weight, and that
+weight 4 lost points with bad tags; that is why DEAD_WEIGHT is not set to 4 (0.724 with good tags).
+Nothing here looks at the competition ground truth.
+
+TEAM_WEIGHT is 0: the team hint (restarting team, and throw-in sides below) helped the older
+ownership model, but every team weight above 0 scores lower with the current one, which already
+finds the restarting team. The code is kept so the hint can be switched back on.
 
 Two additions on top (facet.bench prints each one's effect separately):
 - Throw-ins: their side is read from the tracking (throw_in_side), as the team of the player on
   the touchline around the restart. On the sample games' 110 throw-ins it names a side for 97% and
-  is right on 99% of those; their player tracking is cleaner than ours, so expect less here.
+  is right on 99% of those; their player tracking is cleaner than ours, so expect less here. It
+  only feeds the team hint, so with TEAM_WEIGHT 0 it changes nothing; facet.run still reports it.
 - Goals: the stretch from a GOALS tag to the "Kick Off (After Goal)" after it is forced to dead,
   as the warm-up is (goal_stoppages). A goal is never missed by the scoreboard, and DATA.md counts
-  4 of each tag, so this one is trusted further than the other set pieces.
-Together they take spellF1 from 0.564 to 0.566 and macroF1 from 0.778 to 0.779 on the bench. That
-is small: on the sample games the dead-ball model already finds most celebrations, and the ownership
-model most throw-in teams. Both should matter more on our rougher tracking.
+  4 of each tag, so this one is trusted further than the other set pieces. On the bench it changes
+  nothing, because the dead-ball model already finds every sample-game celebration; it is a safety
+  net for our rougher tracking.
 """
 
 import numpy as np
@@ -41,7 +45,7 @@ MARGIN = 1 * FPS        # frames either side of the tagged time left to the trac
 BEFORE = 3 * FPS        # frames of dead evidence before that
 AFTER = 3 * FPS         # frames of live (and team) evidence after it
 DEAD_WEIGHT = 2.0       # log-likelihood ratio per frame, same units as dead.dead_evidence
-TEAM_WEIGHT = 0.5       # same units as owner.team_evidence (which is clipped to +-4)
+TEAM_WEIGHT = 0.0       # same units as owner.team_evidence (which is clipped to +-4); off, see above
 
 # DATA.md: the Team tag is "Barcelona" for the home side and "Atletic Club" (sic) for the away
 # side. Anything else is treated as unknown rather than guessed.
