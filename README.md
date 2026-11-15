@@ -22,13 +22,7 @@ files are left unchanged so organiser fixes merge cleanly with `git pull upstrea
    ```bash
    .venv/bin/python evaluation/run_evaluation.py   # scores the four baselines, no data needed
    .venv/bin/python starter/baseline.py            # needs the data; rebuilds the baselines
-   .venv/bin/python -m facet.run                   # our submission -> evaluation/results/facet.csv
-   .venv/bin/python -m pytest -q tests
    ```
-
-**Pipeline** (`facet/`): `load` caches the tracking as numpy, `features` builds per-frame
-features, `possession` scores home vs away, `dead` scores dead vs alive, and `decode` runs a
-three-state Viterbi with switch costs so the output comes out as whole possessions.
 
 **Rules we follow** (see [RULES.md](RULES.md)):
 - Every label comes out of code. There is no hand labelling or hand correction of this game.
