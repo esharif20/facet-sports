@@ -20,7 +20,9 @@ from facet.load import FPS
 from games import DATA_DIR
 
 FOLDER = os.path.join(DATA_DIR, "external", "metrica")
-URL = "https://raw.githubusercontent.com/metrica-sports/sample-data/master/data/"
+# Pinned to one commit so the files, and so our submission, cannot change under us.
+URL = ("https://raw.githubusercontent.com/metrica-sports/sample-data/"
+       "e706dd506b360d69d9d123d5b8026e7294b13996/data/")
 GAMES = (1, 2, 3)
 FILES = {1: ("RawEventsData.csv", "RawTrackingData_Home_Team.csv", "RawTrackingData_Away_Team.csv"),
          2: ("RawEventsData.csv", "RawTrackingData_Home_Team.csv", "RawTrackingData_Away_Team.csv"),
@@ -143,7 +145,7 @@ def _epts_game(game):
 
 def load(game):
     """dict: players [T,n,3], ball_xy [T,2] (metres), team [n], labels [T] of 'H' 'A' 'D',
-    period [T]."""
+    period [T], restarts [(row, side, kind)] for every set piece."""
     download()
     xy, team, ball, period, events = (_epts_game if game == 3 else _csv_game)(game)
     n = len(xy)
@@ -163,8 +165,11 @@ def load(game):
         if owner[frame] < 0:
             owner[frame] = owner[frame - 1]
     labels = _only_controlled(np.where(dead[1:], "D", np.where(owner[1:] == 0, "H", "A")))
+    # every set piece, as (row, side, kind); rows count from 0 where event frames count from 1
+    restarts = [(start - 1, 0 if is_home else 1, sub) for is_home, kind, sub, start, _ in events
+                if kind == "SET PIECE" and 0 < start <= n]
     return {"players": with_speed(xy * PITCH), "ball_xy": ball * PITCH, "team": team,
-            "labels": labels, "period": period}
+            "labels": labels, "period": period, "restarts": restarts}
 
 
 def _smooth(values, frames):

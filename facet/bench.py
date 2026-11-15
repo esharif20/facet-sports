@@ -6,6 +6,7 @@ game.
 
     python -m facet.bench          the current settings
     python -m facet.bench sweep    a grid around them
+    python -m facet.bench restarts with and without Smart Tagging restarts (facet.restarts)
 """
 
 import itertools
@@ -14,7 +15,7 @@ import sys
 
 import numpy as np
 
-from facet import dead, decode, owner, sample_games
+from facet import dead, decode, owner, restarts, sample_games
 from facet.load import ROOT
 
 sys.path.insert(0, os.path.join(ROOT, "evaluation"))
@@ -29,13 +30,20 @@ def prepare(number):
     game.update(
         dead=dead.dead_evidence(dead.fit(others), game["players"], xy, sample_games.PITCH),
         owner=owner.team_evidence(owner.fit(others), game["players"], game["team"], xy,
-                                  ~np.isnan(xy[:, 0])))
+                                  ~np.isnan(xy[:, 0])),
+        tagged=restarts.like_smart_tagging(game["restarts"], game["labels"], seed=200 + number))
     return game
 
 
 def score(game, switch_team=decode.SWITCH_TEAM, switch_dead=decode.SWITCH_DEAD,
-          team_scale=decode.TEAM_SCALE, dead_scale=decode.DEAD_SCALE):
-    emit = decode.emissions(game["owner"], game["dead"], team_scale, dead_scale)
+          team_scale=decode.TEAM_SCALE, dead_scale=decode.DEAD_SCALE, use_restarts=False,
+          restart_dead=restarts.DEAD_WEIGHT, restart_team=restarts.TEAM_WEIGHT):
+    team, stopped = game["owner"], game["dead"]
+    if use_restarts:
+        add_team, add_dead = restarts.evidence(len(team), game["tagged"], restart_dead,
+                                               restart_team)
+        team, stopped = team + add_team, stopped + add_dead
+    emit = decode.emissions(team, stopped, team_scale, dead_scale)
     truth, guess = [], []
     for period in (1, 2):
         rows = game["period"] == period
@@ -57,7 +65,12 @@ def report(games, **settings):
 if __name__ == "__main__":
     prepared = [prepare(number) for number in sample_games.GAMES]
     report(prepared)
+    report(prepared, use_restarts=True)          # what facet.run does: with Smart Tagging restarts
     if sys.argv[1:] == ["sweep"]:
         for values in itertools.product((3, 5, 8, 12), (30, 60, 100), (0.5, 1.0), (0.5, 1.0)):
             report(prepared, **dict(zip(("switch_team", "switch_dead", "team_scale",
                                          "dead_scale"), values)))
+    if sys.argv[1:] == ["restarts"]:
+        for dead_weight, team_weight in itertools.product((0.5, 1.0, 2.0, 4.0),
+                                                          (0.0, 0.5, 1.0, 2.0)):
+            report(prepared, use_restarts=True, restart_dead=dead_weight, restart_team=team_weight)

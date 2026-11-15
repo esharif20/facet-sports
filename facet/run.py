@@ -6,7 +6,7 @@ import sys
 
 import numpy as np
 
-from facet import dead, decode, load, owner, players
+from facet import dead, decode, load, owner, players, restarts
 from facet.ball import fuse
 from games import GAME, GAMES, half_video_blocks
 from starter.baseline import write_submission
@@ -22,6 +22,9 @@ def predict(game=GAME):
 
     team = owner.team_evidence(owner.fit(), people, tac["team"], ball["xy"], usable)
     stopped = dead.dead_evidence(dead.fit(), people, ball["xy"], GAMES[game]["pitch"])
+    tagged = restarts.from_smart_tagging(game)
+    add_team, add_dead = restarts.evidence(len(team), tagged)
+    team, stopped = team + add_team, stopped + add_dead
     stopped[dead.before_kickoff(len(stopped), game)] = 1000.0     # warm-up is certainly dead
     emit = decode.emissions(team, stopped)
 
@@ -30,6 +33,8 @@ def predict(game=GAME):
         labels[first:last + 1] = np.array(["H", "A", "D"])[decode.viterbi(emit[first:last + 1])]
     print("broadcast offsets {}  ghost frames cut {}  ball seen {:.1%}  disputed {:.1%}".format(
         ball["offsets"], cut, ball["seen"].mean(), ball["disputed"].mean()))
+    print("smart tagging restarts {}  with a team {}".format(
+        len(tagged), sum(side is not None for _, side in tagged)))
     return labels
 
 
