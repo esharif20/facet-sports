@@ -26,22 +26,30 @@ FILES = {1: ("RawEventsData.csv", "RawTrackingData_Home_Team.csv", "RawTrackingD
          2: ("RawEventsData.csv", "RawTrackingData_Home_Team.csv", "RawTrackingData_Away_Team.csv"),
          3: ("events.json", "metadata.xml", "tracking.txt")}
 PITCH = (105.0, 68.0)
-STOPS = ("BALL OUT", "FAULT RECEIVED", "CARD")          # play stops here...
-OWNING = ("SET PIECE", "PASS", "CARRY", "SHOT", "RECOVERY", "BALL LOST")   # ...these name the owner
+OWNING = ("SET PIECE", "PASS", "CARRY", "SHOT", "RECOVERY", "BALL LOST")   # events naming the owner
 
 # The sample games are hand-corrected: their ball is glued to whoever has it and never lost in
 # play. Ours is automatic. These settings damage the sample ball until it looks like ours. They
 # were set by matching two things measured on our tracking with no labels involved: how far the
 # nearest player is from the ball (median 1.65 m) and how smoothly the ball moves.
-CONTROLLED = 1.5        # s: a shorter touch between two spells of the other team does not count.
-#                         With this the possession lengths match the ones published for the
-#                         competition's public ground truth (mean 14.2 s).
+CONTROLLED = 2.0        # s: a shorter touch between two spells of the other team does not count.
+#                         The challenge asks for controlled possession ("a player keeps the ball
+#                         for a few seconds"); with 2 s the possession lengths also come out
+#                         close to those published for the competition's public ground truth.
 
 SMOOTH = 9              # frames: our tracker rounds off sharp changes of direction
 WANDER = 0.8            # m: how far the tracked ball strays from the real one
 WANDER_FRAMES = 25      # how slowly that error changes
 HIDE_SHARE = 0.25       # of live frames lose their ball, as our tracker does in play
 HIDE_SECONDS = (3, 15)
+# Our tracker often still sees the ball while it is dead: rolling on after the whistle, carried
+# back, or placed for the restart. The sample games never show that, so it is drawn in. A quick
+# restart (throw-in, goal kick) keeps the ball in view; a long stoppage (goal, injury) loses it.
+# Chances of: nothing shown, the roll-on only, the placed ball only, the whole stoppage.
+DEAD_BALL_QUICK = (0.15, 0.10, 0.25, 0.50)
+DEAD_BALL_LONG = (0.50, 0.15, 0.25, 0.10)
+QUICK = 20              # s: stoppages shorter than this are quick restarts
+ROLL_ON = 1.5           # s: how quickly a ball left alone slows down
 
 
 def _path(game, name):
@@ -147,22 +155,21 @@ def load(game):
     download()
     xy, team, ball, period, events = (_epts_game if game == 3 else _csv_game)(game)
     n = len(xy)
-    dead = np.zeros(n + 1, dtype=bool)
+    # In hand-corrected tracking the ball is absent exactly while it is dead: it vanishes one
+    # frame after the stopping event and returns at the restart. Shorter holes are dropouts.
+    dead = np.isnan(ball[:, 0])
+    edges = np.diff(np.r_[0, dead.astype(np.int8), 0])
+    for start, end in zip(np.where(edges == 1)[0], np.where(edges == -1)[0]):
+        if end - start < FPS:
+            dead[start:end] = False
     owner = np.full(n + 1, -1, dtype=np.int8)
-    stopped_at = 1                                       # dead until the first kick-off
-    for is_home, kind, sub, start, end in sorted(events, key=lambda e: e[3]):
-        if kind == "SET PIECE" and stopped_at is not None:
-            dead[stopped_at:start] = True
-            stopped_at = None
-        elif stopped_at is None and (kind in STOPS or (kind == "SHOT" and ("GOAL" in sub
-                                                                          or "OUT" in sub))):
-            stopped_at = max(end, start)
+    for is_home, kind, _, start, _ in sorted(events, key=lambda e: e[3]):
         if kind in OWNING:
             owner[start] = 0 if is_home else 1
     for frame in range(1, n + 1):                        # the owner keeps the ball until the next
         if owner[frame] < 0:
             owner[frame] = owner[frame - 1]
-    labels = _only_controlled(np.where(dead[1:], "D", np.where(owner[1:] == 0, "H", "A")))
+    labels = _only_controlled(np.where(dead, "D", np.where(owner[1:] == 0, "H", "A")))
     return {"players": with_speed(xy * PITCH), "ball_xy": ball * PITCH, "team": team,
             "labels": labels, "period": period}
 
@@ -176,16 +183,43 @@ def _smooth(values, frames):
                     np.nan)
 
 
+def _dead_ball(ball, labels, rng):
+    """A copy of the ball with sightings drawn into some stoppages (see DEAD_BALL_QUICK)."""
+    out = ball.copy()
+    edges = np.diff(np.r_[0, (labels == "D").astype(np.int8), 0])
+    for start, end in zip(np.where(edges == 1)[0], np.where(edges == -1)[0]):
+        if start < 4 or end >= len(ball) or np.isnan(ball[[start - 4, start - 1, end], 0]).any():
+            continue
+        kind = rng.choice(4, p=DEAD_BALL_QUICK if end - start < QUICK * FPS else DEAD_BALL_LONG)
+        if kind == 0:
+            continue
+        leaving, restart = ball[start - 1], ball[end]
+        velocity = (ball[start - 1] - ball[start - 4]) * FPS / 3
+        roll = min(int(rng.integers(1 * FPS, 6 * FPS)), end - start)
+        t = np.arange(1, roll + 1)[:, None] / FPS
+        rolled = leaving + velocity * ROLL_ON * (1 - np.exp(-t / ROLL_ON))
+        placed = min(int(rng.integers(1 * FPS, 10 * FPS)), end - start)
+        if kind in (1, 3):
+            out[start:start + roll] = rolled
+        if kind in (2, 3):
+            out[end - placed:end] = restart
+        if kind == 3 and start + roll < end - placed:        # carried from one to the other
+            steps = np.linspace(0, 1, end - placed - start - roll + 2)[1:-1, None]
+            out[start + roll:end - placed] = rolled[-1] + steps * (restart - rolled[-1])
+    return out
+
+
 def like_ours(game, seed):
-    """A copy of a game whose ball is as rough as our tracking: rounded off, wandering, and
-    missing on random stretches of live play."""
+    """A copy of a game whose ball is as rough as our tracking: seen during some stoppages,
+    rounded off, wandering, and missing on random stretches of live play."""
     rng = np.random.default_rng(seed)
     n = len(game["ball_xy"])
     window = np.hanning(2 * WANDER_FRAMES + 1)
     window /= np.sqrt((window ** 2).sum())
     white = rng.normal(0, WANDER, (n + 4 * WANDER_FRAMES, 2))
     wander = np.stack([np.convolve(white[:, axis], window, mode="same") for axis in (0, 1)], 1)
-    ball = np.stack([_smooth(game["ball_xy"][:, axis], SMOOTH) for axis in (0, 1)], 1) \
+    drawn = _dead_ball(game["ball_xy"], game["labels"], rng)
+    ball = np.stack([_smooth(drawn[:, axis], SMOOTH) for axis in (0, 1)], 1) \
         + wander[2 * WANDER_FRAMES:2 * WANDER_FRAMES + n]
 
     live = np.where(game["labels"] != "D")[0]

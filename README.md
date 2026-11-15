@@ -64,7 +64,7 @@ files are left unchanged so organiser fixes merge cleanly with `git pull upstrea
 | Ghosts | `facet/players.py` | Removes a player tracked twice. |
 | Other matches | `facet/sample_games.py` | Metrica's open sample games with labels from their events, roughened until their ball looks like our tracking. |
 | Dead ball | `facet/dead.py` | A classifier of how players and ball move during a stoppage, trained on the sample games. |
-| Ownership | `facet/owner.py` | A classifier of which team owns the ball, from the contacts each team has with it, trained on the sample games. |
+| Ownership | `facet/owner.py` | A classifier of which team owns the ball, from the contacts and touches each team has with it and from how the two teams are arranged, trained on the sample games. |
 | Decode | `facet/decode.py` | A three-state Viterbi (home, away, dead) that turns the two probabilities into whole possessions. |
 | Bench | `facet/bench.py` | Scores all of the above on the sample games. |
 
