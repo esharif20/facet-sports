@@ -45,6 +45,29 @@ def _nearest(players, team, ball_xy, side):
     return np.where(np.isinf(best), np.nan, best), np.hypot(rel[:, 0], rel[:, 1])
 
 
+def _flow(players, team):
+    """Which way play is flowing: the team with the ball pushes everyone towards the other goal.
+
+    Each half is split in two blocks by where the teams sit on average, which gives the direction
+    home attacks in. Returns the players' collective drift along that direction, over 1 s and 4 s.
+    """
+    x = players[:, :, 0].astype(np.float64)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        home_x, away_x = np.nanmean(x[:, team == 0], axis=1), np.nanmean(x[:, team == 1], axis=1)
+        centre = np.nanmean(x, axis=1)
+    # home attacks towards larger x while it sits at smaller x; smoothing over ten minutes
+    # follows the change of ends at halftime
+    side = np.sign(dead._smooth(np.nan_to_num(away_x - home_x), 15000 + 1))
+    out = []
+    for frames in (25, 100):
+        drift = np.full(len(x), np.nan)
+        drift[frames:] = (centre[frames:] - centre[:-frames]) * FPS / frames
+        drift = np.nan_to_num(drift)
+        out += [side * drift, side * dead._shift(drift, frames)]      # just gone, and coming
+    return out
+
+
 def contacts(closeness, reach_ok):
     """Stretches where one side is in contact: arrays (start, end, side) with side +1 home."""
     side = np.where(reach_ok, np.sign(closeness), 0).astype(int)
@@ -97,6 +120,7 @@ def features(players, team, ball_xy, usable):
         signed += [dead._shift(wide, -lag), dead._shift(wide, lag)]
     signed += [np.nan_to_num(away_rel, nan=20.0).clip(0, 20) - np.nan_to_num(home_rel, nan=20.0)
                .clip(0, 20)]
+    signed += _flow(players, team)
     plain = [np.minimum(near_home, near_away), np.nan_to_num(speed, nan=-1.0),
              np.nan_to_num(change, nan=-1.0), usable.astype(float), since, until]
     for step in (-2, -1, 0, 1, 2):                           # two contacts back to two ahead

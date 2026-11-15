@@ -27,6 +27,10 @@ OWNING = ("SET PIECE", "PASS", "SHOT", "RECOVERY", "BALL LOST")   # ...and these
 # play. Ours is automatic. These settings damage the sample ball until it looks like ours. They
 # were set by matching two things measured on our tracking with no labels involved: how far the
 # nearest player is from the ball (median 1.65 m) and how smoothly the ball moves.
+CONTROLLED = 1.5        # s: a shorter touch between two spells of the other team does not count.
+#                         With this the possession lengths match the ones published for the
+#                         competition's public ground truth (mean 14.2 s).
+
 SMOOTH = 9              # frames: our tracker rounds off sharp changes of direction
 WANDER = 0.8            # m: how far the tracked ball strays from the real one
 WANDER_FRAMES = 25      # how slowly that error changes
@@ -61,6 +65,25 @@ def with_speed(xy):
     return np.concatenate([xy, _speed(xy)[..., None]], axis=-1).astype(np.float32)
 
 
+def _only_controlled(labels):
+    """Hand a brief touch back to the team around it.
+
+    The events record every touch, but the challenge counts only controlled possession: "a simple
+    touch of the ball without control" is not a change. A spell shorter than CONTROLLED with the
+    other team on both sides is such a touch.
+    """
+    labels = labels.copy()
+    while True:
+        edges = np.r_[0, np.where(labels[1:] != labels[:-1])[0] + 1, len(labels)]
+        first = labels[edges[:-1]]
+        brief = [i for i in range(1, len(first) - 1)
+                 if first[i] != "D" and edges[i + 1] - edges[i] < CONTROLLED * FPS
+                 and first[i - 1] == first[i + 1] and first[i - 1] not in ("D", first[i])]
+        if not brief:
+            return labels
+        labels[edges[brief[0]]:edges[brief[0] + 1]] = first[brief[0] - 1]
+
+
 def load(game):
     """dict: players [T,n,3], ball_xy [T,2] (metres), team [n], labels [T] of 'H' 'A' 'D',
     period [T]."""
@@ -90,8 +113,7 @@ def load(game):
     for frame in range(1, n + 1):                        # the owner keeps the ball until the next
         if owner[frame] < 0:
             owner[frame] = owner[frame - 1]
-    # the end of each half is dead from its last stop onwards
-    labels = np.where(dead[1:], "D", np.where(owner[1:] == 0, "H", "A"))
+    labels = _only_controlled(np.where(dead[1:], "D", np.where(owner[1:] == 0, "H", "A")))
     return {"players": with_speed(xy), "ball_xy": sides[0][:, -2:] * PITCH, "team": team,
             "labels": labels, "period": period}
 

@@ -8,8 +8,8 @@ import numpy as np
 
 H, A, D = 0, 1, 2
 # Chosen with facet.bench on Metrica's open sample games, never on the competition ground truth.
-SWITCH_TEAM = 5.0
-SWITCH_DEAD = 45.0
+SWITCH_TEAM = 6.0
+SWITCH_DEAD = 80.0
 TEAM_SCALE = 1.0       # neighbouring frames repeat each other, so evidence may need shrinking
 DEAD_SCALE = 0.5
 
