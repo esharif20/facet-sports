@@ -23,9 +23,12 @@ def predict(game=GAME):
     team = owner.team_evidence(owner.fit(), people, tac["team"], ball["xy"], usable)
     stopped = dead.dead_evidence(dead.fit(), people, ball["xy"], GAMES[game]["pitch"])
     tagged = restarts.from_smart_tagging(game)
+    tagged = restarts.with_throw_in_sides(tagged, people, tac["team"], GAMES[game]["pitch"])
     add_team, add_dead = restarts.evidence(len(team), tagged)
     team, stopped = team + add_team, stopped + add_dead
     stopped[dead.before_kickoff(len(stopped), game)] = 1000.0     # warm-up is certainly dead
+    goals = restarts.goals_from_smart_tagging(game)
+    stopped[restarts.goal_stoppages(len(stopped), goals)] = 1000.0   # so is a goal celebration
     emit = decode.emissions(team, stopped)
 
     labels = np.full(len(team), "X", dtype="<U1")
@@ -33,8 +36,12 @@ def predict(game=GAME):
         labels[first:last + 1] = np.array(["H", "A", "D"])[decode.viterbi(emit[first:last + 1])]
     print("broadcast offsets {}  ghost frames cut {}  ball seen {:.1%}  disputed {:.1%}".format(
         ball["offsets"], cut, ball["seen"].mean(), ball["disputed"].mean()))
-    print("smart tagging restarts {}  with a team {}".format(
-        len(tagged), sum(side is not None for _, side in tagged)))
+    throw_ins = [side for _, side, kind in tagged if restarts.is_throw_in(kind)]
+    print("smart tagging restarts {}  with a team {}  throw-ins {} (side from tracking {})  "
+          "goals {} (paired with a GOALS tag {})".format(
+              len(tagged), sum(side is not None for _, side, _ in tagged), len(throw_ins),
+              sum(side is not None for side in throw_ins), len(goals),
+              sum(goal is not None for goal, _ in goals)))
     return labels
 
 

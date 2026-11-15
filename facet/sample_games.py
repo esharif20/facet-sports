@@ -168,8 +168,16 @@ def load(game):
     # every set piece, as (row, side, kind); rows count from 0 where event frames count from 1
     restarts = [(start - 1, 0 if is_home else 1, sub) for is_home, kind, sub, start, _ in events
                 if kind == "SET PIECE" and 0 < start <= n]
+    # every goal, as (row where the goal event ends, row of the next set piece: the kick-off)
+    ordered = sorted(events, key=lambda e: e[3])
+    goals = []
+    for i, (_, kind, sub, start, end) in enumerate(ordered):
+        if kind == "SHOT" and "GOAL" in sub:
+            kickoff = next((e[3] for e in ordered[i + 1:] if e[1] == "SET PIECE"), None)
+            if kickoff is not None and 0 < kickoff <= n:
+                goals.append((max(start, end) - 1, kickoff - 1))
     return {"players": with_speed(xy * PITCH), "ball_xy": ball * PITCH, "team": team,
-            "labels": labels, "period": period, "restarts": restarts}
+            "labels": labels, "period": period, "restarts": restarts, "goals": goals}
 
 
 def _smooth(values, frames):
