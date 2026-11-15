@@ -144,7 +144,8 @@ def training_set(game_numbers=sample_games.GAMES):
 
 
 def fit(game_numbers=sample_games.GAMES):
-    model = HistGradientBoostingClassifier(max_iter=300, learning_rate=0.1, random_state=0)
+    model = HistGradientBoostingClassifier(max_iter=400, learning_rate=0.05, min_samples_leaf=200,
+                                           l2_regularization=1.0, random_state=0)
     return model.fit(*training_set(game_numbers))
 
 
