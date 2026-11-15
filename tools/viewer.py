@@ -4,7 +4,7 @@
     .venv/bin/python tools/viewer.py --start 11185 --labels evaluation/results/baseline_smooth50.csv
 
 Writes to data/viz/, which is gitignored. Everything stays on this machine: the match data must
-not be shared, so do not upload these files anywhere (including AI chat tools).
+not be redistributed, so never commit or publish these files.
 
 The tracking is drawn over the video through the homography, which assumes everything is on the
 ground. A ball in the air is therefore drawn in the wrong place (further from the camera than the

@@ -24,7 +24,7 @@ files are left unchanged so organiser fixes merge cleanly with `git pull upstrea
    .venv/bin/python starter/baseline.py            # needs the data; rebuilds the baselines
    ```
 
-4. **Look at the data** (writes clips to `data/viz/`, never upload them anywhere):
+4. **Look at the data** (writes clips to `data/viz/`, which is gitignored; never publish them):
 
    ```bash
    .venv/bin/python tools/viewer.py --start 11185 --seconds 20 --labels evaluation/results/baseline_smooth50.csv
@@ -38,8 +38,6 @@ files are left unchanged so organiser fixes merge cleanly with `git pull upstrea
 - Every label comes out of code. There is no hand labelling or hand correction of this game.
 - The public 5-minute ground truth is only for checking that the pipeline runs correctly. We do
   not tune anything on it.
-- No match data, video or tracking extracts are uploaded to a hosted LLM (terms of use). Code
-  that touches the data runs locally.
 - Before every push, run `git ls-files | grep -E "_atd\.(txt|xml)|_homography\.csv|_smart_tagging\.xml|\.mp4|\.npz"`.
   It must print nothing.
 
