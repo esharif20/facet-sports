@@ -29,8 +29,8 @@ def predict(game=GAME):
     for _, first, last in half_video_blocks(game):
         path = decode.viterbi(team[first:last + 1], dead[first:last + 1])
         labels[first:last + 1] = np.array(["H", "A", "D"])[path]
-    print("broadcast offsets {}  ghost frames cut {}  ball seen {:.1%}  with height {:.1%}".format(
-        ball["offsets"], cut, ball["seen"].mean(), (~np.isnan(ball["z"])).mean()))
+    print("broadcast offsets {}  ghost frames cut {}  ball seen {:.1%}  disputed {:.1%}".format(
+        ball["offsets"], cut, ball["seen"].mean(), ball["disputed"].mean()))
     return labels
 
 

@@ -6,9 +6,9 @@
 Writes to data/viz/, which is gitignored. Everything stays on this machine: the match data must
 not be redistributed, so never commit or publish these files.
 
-The homography assumes everything is on the ground. A ball in the air is therefore at the right
-pixel on the video overlay, but at the wrong place on the pitch clip (further from the camera than
-the real ball). That mismatch is the thing to watch for.
+The homography assumes everything is on the ground, so a ball in the air is placed further from
+the camera than it really is. The tracked ball can also sit on something that is not the ball.
+Both are things to watch for.
 """
 
 import argparse
