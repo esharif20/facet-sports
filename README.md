@@ -31,9 +31,8 @@ files are left unchanged so organiser fixes merge cleanly with `git pull upstrea
    ```
 
    You get a timeline (ball speed, player speed, when the ball is missing, labels), a pitch clip, and
-   the tracking drawn over the tactical video. A ball in the air sits at the right pixel on the
-   video but at the wrong place on the pitch clip (further from the camera than it really is),
-   because the homography assumes everything is on the ground.
+   the tracking drawn over the tactical video. The homography assumes everything is on the ground,
+   so a ball in the air is placed further from the camera than it really is.
 
 5. **Build our submission** (about 20 seconds; writes `evaluation/results/facet.csv`, validates it
    and scores it on the public 5 minutes as a sanity check):
@@ -49,8 +48,7 @@ files are left unchanged so organiser fixes merge cleanly with `git pull upstrea
 |---|---|---|
 | Load | `facet/load.py` | Both feeds' tracking as arrays, cached in `data/cache/`. |
 | Sync | `facet/sync.py` | Finds the broadcast-to-tactical frame offset of each half by sliding one ball track along the other. |
-| Height | `facet/ball/height.py` | Recovers both camera positions from the homographies and intersects their lines of sight, giving the real ball height. |
-| Fuse | `facet/ball/fuse.py` | One ball track: tactical, corrected for height, with broadcast filling gaps. |
+| Fuse | `facet/ball/fuse.py` | One ball track: tactical, with broadcast filling gaps. Frames where the two feeds disagree are marked disputed (ball in the air, or one tracker wrong) and give nobody possession. |
 | Ghosts | `facet/players.py` | Removes a player tracked twice. |
 | Evidence | `facet/evidence.py` | Per frame: who controls the ball, and whether the ball is dead. |
 | Decode | `facet/decode.py` | A three-state Viterbi (home, away, dead) that turns evidence into whole possessions. |

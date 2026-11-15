@@ -15,7 +15,6 @@ from starter import load_smart_tagging
 # Control: a player close to the ball and moving with it (Link & Hoernig 2017).
 CONTROL_RADIUS = 2.0     # m
 MAX_REL_SPEED = 5.0      # m/s between ball and player; a ball flying past is faster than this
-HEAD_HEIGHT = 2.2        # m: a ball above this cannot be controlled by anyone
 CARRY = 0.01             # loose ball: a faint vote for the team that last controlled it
 
 # Dead ball.
@@ -61,8 +60,7 @@ def team_evidence(ball, players, team):
     llr = np.clip(np.where(np.isinf(home) & np.isinf(away), 0.0,
                            np.nan_to_num(away, posinf=99.0) - np.nan_to_num(home, posinf=99.0)),
                   -1.0, 1.0)
-    llr[np.nan_to_num(ball["z"], nan=0.0) > HEAD_HEIGHT] = 0.0
-    llr[~ball["seen"]] = 0.0
+    llr[~ball["seen"] | ball["disputed"]] = 0.0
 
     # contested or loose: possession stays with the last team, so lean faintly their way
     last = np.sign(llr)
