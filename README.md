@@ -1,3 +1,44 @@
+# Facet Sports — our entry
+
+This repository is our team's entry for More than a Hack 2027, built on the official
+challenge repository (kept as the `upstream` remote). Our code lives in `facet/`. The upstream
+files are left unchanged so organiser fixes merge cleanly with `git pull upstream main`.
+
+## Team quickstart
+
+1. **Keep the data outside the repo.** The match data is licensed and this repo is public, so
+   it must never be committed. Unpack the bundle to `~/data/mtah2027/` (one folder each for
+   `tactical/` and `broadcast/`, as in [DATA.md](DATA.md)) and point the code at it:
+
+   ```bash
+   export MTAH_DATA_DIR=~/data/mtah2027
+   ```
+
+2. **Environment** (Python 3.11, pinned versions in `requirements.lock`):
+
+   ```bash
+   uv venv --python 3.11 .venv
+   uv pip install --python .venv/bin/python -r requirements.lock
+   ```
+
+3. **Check that everything runs:**
+
+   ```bash
+   .venv/bin/python evaluation/run_evaluation.py   # scores the four baselines, no data needed
+   .venv/bin/python starter/baseline.py            # needs the data; rebuilds the baselines
+   ```
+
+**Rules we follow** (see [RULES.md](RULES.md)):
+- Every label comes out of code. There is no hand labelling or hand correction of this game.
+- The public 5-minute ground truth is only for checking that the pipeline runs correctly. We do
+  not tune anything on it.
+- No match data, video or tracking extracts are uploaded to a hosted LLM (terms of use). Code
+  that touches the data runs locally.
+- Before every push, run `git ls-files | grep -E "_atd\.(txt|xml)|_homography\.csv|_smart_tagging\.xml|\.mp4|\.npz"`.
+  It must print nothing.
+
+---
+
 # More than a Hack 2027 — Phase 1: Ball Possession
 
 **Organised by [Metrica Sports](https://metrica-sports.com), [FC Barcelona](https://www.fcbarcelona.com)
