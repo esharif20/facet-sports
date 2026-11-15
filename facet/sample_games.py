@@ -1,13 +1,16 @@
 """Metrica's open sample games: other matches, with events, used to train and tune.
 
-Source: https://github.com/metrica-sports/sample-data (games 1 and 2). They are public, they are
-not the competition match, and their labels come from Metrica's own event data. Nothing here
+Source: https://github.com/metrica-sports/sample-data (games 1, 2 and 3). They are public, they
+are not the competition match, and their labels come from Metrica's own event data. Nothing here
 touches the competition match's ground truth.
 
     python -m facet.sample_games     downloads the files into data/external/metrica/
 """
 
+import io
+import json
 import os
+import re
 import urllib.request
 
 import numpy as np
@@ -18,10 +21,13 @@ from games import DATA_DIR
 
 FOLDER = os.path.join(DATA_DIR, "external", "metrica")
 URL = "https://raw.githubusercontent.com/metrica-sports/sample-data/master/data/"
-GAMES = (1, 2)
+GAMES = (1, 2, 3)
+FILES = {1: ("RawEventsData.csv", "RawTrackingData_Home_Team.csv", "RawTrackingData_Away_Team.csv"),
+         2: ("RawEventsData.csv", "RawTrackingData_Home_Team.csv", "RawTrackingData_Away_Team.csv"),
+         3: ("events.json", "metadata.xml", "tracking.txt")}
 PITCH = (105.0, 68.0)
 STOPS = ("BALL OUT", "FAULT RECEIVED", "CARD")          # play stops here...
-OWNING = ("SET PIECE", "PASS", "SHOT", "RECOVERY", "BALL LOST")   # ...and these name the owner
+OWNING = ("SET PIECE", "PASS", "CARRY", "SHOT", "RECOVERY", "BALL LOST")   # ...these name the owner
 
 # The sample games are hand-corrected: their ball is glued to whoever has it and never lost in
 # play. Ours is automatic. These settings damage the sample ball until it looks like ours. They
@@ -38,18 +44,17 @@ HIDE_SHARE = 0.25       # of live frames lose their ball, as our tracker does in
 HIDE_SECONDS = (3, 15)
 
 
-def _path(game, kind):
-    return os.path.join(FOLDER, "Sample_Game_{0}_Raw{1}.csv".format(game, kind))
+def _path(game, name):
+    return os.path.join(FOLDER, "Sample_Game_{0}_{1}".format(game, name))
 
 
 def download():
     os.makedirs(FOLDER, exist_ok=True)
-    for game in GAMES:
-        for kind in ("EventsData", "TrackingData_Home_Team", "TrackingData_Away_Team"):
-            if not os.path.exists(_path(game, kind)):
-                name = os.path.basename(_path(game, kind))
-                urllib.request.urlretrieve("{0}Sample_Game_{1}/{2}".format(URL, game, name),
-                                           _path(game, kind))
+    for game, names in FILES.items():
+        for name in names:
+            if not os.path.exists(_path(game, name)):
+                urllib.request.urlretrieve("{0}Sample_Game_{1}/Sample_Game_{1}_{2}".format(
+                    URL, game, name), _path(game, name))
 
 
 def _speed(xy, half_window=12):
@@ -84,24 +89,68 @@ def _only_controlled(labels):
         labels[edges[brief[0]]:edges[brief[0] + 1]] = first[brief[0] - 1]
 
 
+def _csv_game(game):
+    """Games 1 and 2: (xy [T,n,2] in 0-1, team [n], ball [T,2] in 0-1, period [T], events)."""
+    sides = [pd.read_csv(_path(game, "RawTrackingData_{}_Team.csv".format(side)), skiprows=3,
+                         header=None).to_numpy(np.float64) for side in ("Home", "Away")]
+    home, away = sides[0][:, 3:-2], sides[1][:, 3:-2]
+    xy = np.concatenate([home, away], axis=1).reshape(len(home), -1, 2)
+    team = np.r_[np.zeros(home.shape[1] // 2, np.int8), np.ones(away.shape[1] // 2, np.int8)]
+    table = pd.read_csv(_path(game, "RawEventsData.csv"))
+    events = [(row[0] == "Home", row[1], str(row[2]), int(row[4]), int(row[6]))
+              for row in table.itertuples(index=False)]
+    return xy, team, sides[0][:, -2:], sides[0][:, 0].astype(int), events
+
+
+def _epts_game(game):
+    """Game 3, in the same text format as the competition tracking. Which player each column
+    holds changes with substitutions, so every player gets a column of their own."""
+    meta = open(_path(game, "metadata.xml")).read()
+    team_of = dict(re.findall(r'<Player id="([^"]+)" teamId="([^"]+)"', meta))
+    player_of = dict(re.findall(r'<PlayerChannel channelId="x" id="([^"]+)" playerId="([^"]+)"',
+                                meta))
+    if not player_of:                                    # attribute order differs between files
+        player_of = {c: p for p, c in re.findall(
+            r'<PlayerChannel[^>]*playerId="([^"]+)"[^>]*id="([^"]+_x)"', meta)}
+    ids = sorted(team_of)
+    home_team = re.search(r'<Team id="([^"]+)"', meta).group(1)
+    team = np.array([0 if team_of[i] == home_team else 1 for i in ids], dtype=np.int8)
+
+    text = open(_path(game, "tracking.txt")).read().replace(":", ",").replace(";", ",")
+    rows = pd.read_csv(io.StringIO(text), header=None).to_numpy(np.float64)
+    xy = np.full((len(rows), len(ids), 2), np.nan)
+    for first, last, body in re.findall(
+            r'<DataFormatSpecification endFrame="(\d+)" separator=":" startFrame="(\d+)">(.*?)'
+            r'</DataFormatSpecification>', meta, re.S):
+        first, last = int(last), int(first)              # attributes come as end, then start
+        channels = re.findall(r'playerChannelId="([^"]+_x)"', body)
+        block = (rows[:, 0] >= first) & (rows[:, 0] <= last)
+        for column, channel in enumerate(channels):
+            slot = ids.index(player_of[channel])
+            xy[block, slot] = rows[block, 1 + 2 * column:3 + 2 * column]
+    half = int(re.search(r"<Name>second_half_start</Name>\s*<Value>(\d+)", meta).group(1))
+    period = np.where(rows[:, 0] >= half, 2, 1)
+
+    events = []
+    for event in json.load(open(_path(game, "events.json")))["data"]:
+        subtypes = event["subtypes"] or []
+        subtypes = [subtypes] if isinstance(subtypes, dict) else subtypes
+        events.append((event["team"]["id"] == home_team, event["type"]["name"],
+                       "-".join(sub["name"] for sub in subtypes),
+                       int(event["start"]["frame"]), int(event["end"]["frame"])))
+    return xy, team, rows[:, -2:], period, events
+
+
 def load(game):
     """dict: players [T,n,3], ball_xy [T,2] (metres), team [n], labels [T] of 'H' 'A' 'D',
     period [T]."""
     download()
-    sides = [pd.read_csv(_path(game, "TrackingData_{}_Team".format(side)), skiprows=3,
-                         header=None).to_numpy(np.float64) for side in ("Home", "Away")]
-    home, away = sides[0][:, 3:-2], sides[1][:, 3:-2]
-    xy = np.concatenate([home, away], axis=1).reshape(len(home), -1, 2) * PITCH
-    team = np.r_[np.zeros(home.shape[1] // 2, np.int8), np.ones(away.shape[1] // 2, np.int8)]
-    period = sides[0][:, 0].astype(int)
+    xy, team, ball, period, events = (_epts_game if game == 3 else _csv_game)(game)
     n = len(xy)
-
-    events = pd.read_csv(_path(game, "EventsData")).sort_values("Start Frame", kind="stable")
     dead = np.zeros(n + 1, dtype=bool)
     owner = np.full(n + 1, -1, dtype=np.int8)
     stopped_at = 1                                       # dead until the first kick-off
-    for row in events.itertuples(index=False):
-        kind, sub, start, end = row[1], str(row[2]), int(row[4]), int(row[6])
+    for is_home, kind, sub, start, end in sorted(events, key=lambda e: e[3]):
         if kind == "SET PIECE" and stopped_at is not None:
             dead[stopped_at:start] = True
             stopped_at = None
@@ -109,12 +158,12 @@ def load(game):
                                                                           or "OUT" in sub))):
             stopped_at = max(end, start)
         if kind in OWNING:
-            owner[start] = 0 if row[0] == "Home" else 1
+            owner[start] = 0 if is_home else 1
     for frame in range(1, n + 1):                        # the owner keeps the ball until the next
         if owner[frame] < 0:
             owner[frame] = owner[frame - 1]
     labels = _only_controlled(np.where(dead[1:], "D", np.where(owner[1:] == 0, "H", "A")))
-    return {"players": with_speed(xy), "ball_xy": sides[0][:, -2:] * PITCH, "team": team,
+    return {"players": with_speed(xy * PITCH), "ball_xy": ball * PITCH, "team": team,
             "labels": labels, "period": period}
 
 

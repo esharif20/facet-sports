@@ -42,7 +42,7 @@ files are left unchanged so organiser fixes merge cleanly with `git pull upstrea
    .venv/bin/python -m pytest tests -q
    ```
 
-   The first run downloads Metrica's open sample games (about 190 MB) into `data/external/`.
+   The first run downloads Metrica's three open sample games (about 240 MB) into `data/external/`.
 
 6. **Score a change before trusting it** (about a minute):
 
@@ -51,7 +51,7 @@ files are left unchanged so organiser fixes merge cleanly with `git pull upstrea
    .venv/bin/python -m facet.bench sweep    # a grid around them
    ```
 
-   The bench runs the pipeline on two other matches with the official metric. Settings are chosen
+   The bench runs the pipeline on three other matches with the official metric, each scored by models trained on the other two. Settings are chosen
    there, never on the competition ground truth.
 
 ## How it works

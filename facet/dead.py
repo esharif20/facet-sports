@@ -70,7 +70,42 @@ def features(players, ball_xy, pitch):
     columns += [seen.astype(float), seen_share, _shift(seen_share, -4 * SECOND),
                 _shift(seen_share, 4 * SECOND), ball_speed, _smooth(ball_speed, 2 * SECOND + 1),
                 fast_ball, outside, nearest]
+    columns += _around_a_gap(outside, seen) + _shape(players, pitch)
+    for series in motion[:2]:                            # a longer look either side
+        wide = _smooth(np.nan_to_num(series), 6 * SECOND + 1)
+        columns += [_shift(wide, -15 * SECOND), _shift(wide, 15 * SECOND)]
     return np.stack(columns, axis=1).astype(np.float32)
+
+
+def _around_a_gap(outside, seen):
+    """Where the ball was last seen and where it is next seen, and how long ago and ahead.
+
+    A ball that vanished at a line went out of play; one that vanished in midfield was more
+    likely lost by the tracker. Distances are to the nearest line, positive outside the pitch.
+    """
+    frames = np.arange(len(seen))
+    last = np.maximum.accumulate(np.where(seen, frames, -1))
+    following = np.minimum.accumulate(np.where(seen, frames, len(seen))[::-1])[::-1]
+    out = []
+    for index, wait in ((last, frames - last), (following, following - frames)):
+        known = (index >= 0) & (index < len(seen))
+        out += [np.where(known, outside[np.clip(index, 0, len(seen) - 1)], np.nan),
+                np.minimum(np.where(known, wait, 3000), 3000).astype(float)]
+    return out
+
+
+def _shape(players, pitch):
+    """How the players are arranged: set pieces have their own look (a taker on the line, a
+    crowd in the box, everyone bunched or spread)."""
+    length, width = pitch
+    x, y = players[:, :, 0].astype(np.float64), players[:, :, 1].astype(np.float64)
+    with warnings.catch_warnings(), np.errstate(invalid="ignore"):
+        warnings.simplefilter("ignore", RuntimeWarning)
+        on_line = ((x < 1) | (x > length - 1) | (y < 1) | (y > width - 1)).sum(1)
+        in_box = (np.abs(y - width / 2) < 20.16) & ((x < 16.5) | (x > length - 16.5))
+        left, right = (in_box & (x < length / 2)).sum(1), (in_box & (x > length / 2)).sum(1)
+        return [np.nanstd(x, axis=1), np.nanstd(y, axis=1), on_line.astype(float),
+                np.maximum(left, right).astype(float)]
 
 
 def training_set(game_numbers=sample_games.GAMES):
