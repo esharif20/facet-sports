@@ -9,6 +9,7 @@ The sample games are first made as rough as our tracking (sample_games.like_ours
 does not learn to rely on a ball that is cleaner than ours.
 """
 
+import functools
 import warnings
 
 import numpy as np
@@ -108,17 +109,22 @@ def _shape(players, pitch):
                 np.maximum(left, right).astype(float)]
 
 
-def training_set(game_numbers=sample_games.GAMES):
+@functools.lru_cache(maxsize=None)                        # the bench asks for each game three times
+def _rows(number):
     inputs, answers = [], []
-    for number in game_numbers:
-        game = sample_games.like_ours(sample_games.load(number), seed=number)
+    for game in sample_games.training_copies(number):
         inputs.append(features(game["players"], game["ball_xy"],
                                sample_games.PITCH)[::TRAIN_EVERY])
         answers.append((game["labels"] == "D")[::TRAIN_EVERY])
     return np.concatenate(inputs), np.concatenate(answers)
 
 
-def fit(game_numbers=sample_games.GAMES):
+def training_set(game_numbers=sample_games.TRAINING):
+    rows = [_rows(number) for number in game_numbers]
+    return np.concatenate([r[0] for r in rows]), np.concatenate([r[1] for r in rows])
+
+
+def fit(game_numbers=sample_games.TRAINING):
     model = HistGradientBoostingClassifier(max_iter=400, learning_rate=0.05, min_samples_leaf=200,
                                            l2_regularization=1.0, random_state=0)
     return model.fit(*training_set(game_numbers))

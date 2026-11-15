@@ -6,7 +6,7 @@ import sys
 
 import numpy as np
 
-from facet import dead, decode, load, owner, players
+from facet import dead, decode, load, owner, players, refine
 from facet.ball import fuse
 from games import GAME, GAMES, half_video_blocks
 from starter.baseline import write_submission
@@ -20,8 +20,9 @@ def predict(game=GAME):
     ball = fuse.ball_track(game)
     usable = ball["seen"] & ~ball["disputed"]
 
-    team = owner.team_evidence(owner.fit(), people, tac["team"], ball["xy"], usable)
     stopped = dead.dead_evidence(dead.fit(), people, ball["xy"], GAMES[game]["pitch"])
+    team = owner.team_evidence(owner.fit(), people, tac["team"], ball["xy"], usable)
+    team = refine.team_evidence(refine.fit(), team, stopped, usable)
     stopped[dead.before_kickoff(len(stopped), game)] = 1000.0     # warm-up is certainly dead
     emit = decode.emissions(team, stopped)
 

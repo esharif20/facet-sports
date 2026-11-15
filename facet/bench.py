@@ -2,7 +2,7 @@
 
 This is where settings are chosen. The competition match's ground truth is never used for that.
 Each game is first made as rough as our tracking, then scored with models trained on the other
-game.
+two and on the Bundesliga matches.
 
     python -m facet.bench          the current settings
     python -m facet.bench sweep    a grid around them
@@ -14,7 +14,7 @@ import sys
 
 import numpy as np
 
-from facet import dead, decode, owner, sample_games
+from facet import dead, decode, owner, refine, sample_games
 from facet.load import ROOT
 
 sys.path.insert(0, os.path.join(ROOT, "evaluation"))
@@ -23,13 +23,14 @@ import possession_metrics as pm  # noqa: E402
 
 def prepare(number):
     """One game's evidence, from models that never saw it."""
-    others = [n for n in sample_games.GAMES if n != number]
+    others = [n for n in sample_games.TRAINING if n != number]
     game = sample_games.like_ours(sample_games.load(number), seed=100 + number)
     xy = game["ball_xy"]
-    game.update(
-        dead=dead.dead_evidence(dead.fit(others), game["players"], xy, sample_games.PITCH),
-        owner=owner.team_evidence(owner.fit(others), game["players"], game["team"], xy,
-                                  ~np.isnan(xy[:, 0])))
+    seen = ~np.isnan(xy[:, 0])
+    stopped = dead.dead_evidence(dead.fit(others), game["players"], xy, sample_games.PITCH)
+    team = owner.team_evidence(owner.fit(others), game["players"], game["team"], xy, seen)
+    game.update(dead=stopped,
+                owner=refine.team_evidence(refine.fit(others), team, stopped, seen))
     return game
 
 

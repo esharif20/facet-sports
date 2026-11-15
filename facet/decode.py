@@ -7,9 +7,9 @@ only pays off when the evidence for it, summed over frames, beats the cost.
 import numpy as np
 
 H, A, D = 0, 1, 2
-# Chosen with facet.bench on Metrica's open sample games, never on the competition ground truth.
+# Chosen on training matches the models had not seen, never on the competition ground truth.
 SWITCH_TEAM = 5.0
-SWITCH_DEAD = 30.0
+SWITCH_DEAD = 20.0
 TEAM_SCALE = 0.5       # neighbouring frames repeat each other, so evidence may need shrinking
 DEAD_SCALE = 0.5
 

@@ -34,7 +34,7 @@ files are left unchanged so organiser fixes merge cleanly with `git pull upstrea
    the tracking drawn over the tactical video. The homography assumes everything is on the ground,
    so a ball in the air is placed further from the camera than it really is.
 
-5. **Build our submission** (about a minute; writes `evaluation/results/facet.csv`, validates it
+5. **Build our submission** (about half an hour; writes `evaluation/results/facet.csv`, validates it
    and scores it on the public 5 minutes as a sanity check):
 
    ```bash
@@ -42,17 +42,18 @@ files are left unchanged so organiser fixes merge cleanly with `git pull upstrea
    .venv/bin/python -m pytest tests -q
    ```
 
-   The first run downloads Metrica's three open sample games (about 240 MB) into `data/external/`.
+   The first run downloads the training matches into `data/external/`: Metrica's three open sample
+   games (about 240 MB) and seven open Bundesliga matches (about 2.6 GB).
 
-6. **Score a change before trusting it** (about a minute):
+6. **Score a change before trusting it** (about an hour):
 
    ```bash
    .venv/bin/python -m facet.bench          # the current settings
    .venv/bin/python -m facet.bench sweep    # a grid around them
    ```
 
-   The bench runs the pipeline on three other matches with the official metric, each scored by models trained on the other two. Settings are chosen
-   there, never on the competition ground truth.
+   The bench runs the pipeline on Metrica's three sample games with the official metric, each scored
+   by models that never saw it. Settings are chosen there, never on the competition ground truth.
 
 ## How it works
 
@@ -62,11 +63,12 @@ files are left unchanged so organiser fixes merge cleanly with `git pull upstrea
 | Sync | `facet/sync.py` | Finds the broadcast-to-tactical frame offset of each half by sliding one ball track along the other. |
 | Fuse | `facet/ball/fuse.py` | One ball track: tactical, with broadcast filling gaps. Frames where the two feeds disagree by more than 3 m are marked disputed (ball in the air, or one tracker wrong). |
 | Ghosts | `facet/players.py` | Removes a player tracked twice. |
-| Other matches | `facet/sample_games.py` | Metrica's open sample games with labels from their events, roughened until their ball looks like our tracking. |
-| Dead ball | `facet/dead.py` | A classifier of how players and ball move during a stoppage, trained on the sample games. |
-| Ownership | `facet/owner.py` | A classifier of which team owns the ball, from the contacts and touches each team has with it and from how the two teams are arranged, trained on the sample games. |
+| Other matches | `facet/sample_games.py` | Ten matches with known possession: Metrica's three open sample games and seven open Bundesliga matches, roughened until their ball looks like our tracking. |
+| Dead ball | `facet/dead.py` | A classifier of how players and ball move during a stoppage, trained on the other matches. |
+| Ownership | `facet/owner.py` | A classifier of which team owns the ball, from the contacts and touches each team has with it and from how the two teams are arranged, trained on the other matches. |
+| Second look | `facet/refine.py` | A third classifier that reads the first two's answers over the surrounding seconds and corrects ownership. Trained on answers given for matches the first two had not seen. |
 | Decode | `facet/decode.py` | A three-state Viterbi (home, away, dead) that turns the two probabilities into whole possessions. |
-| Bench | `facet/bench.py` | Scores all of the above on the sample games. |
+| Bench | `facet/bench.py` | Scores all of the above on Metrica's sample games. |
 
 **Rules we follow** (see [RULES.md](RULES.md)):
 - Every label comes out of code. There is no hand labelling or hand correction of this game.

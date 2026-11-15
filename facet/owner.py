@@ -9,6 +9,7 @@ Every feature is either symmetric or flips sign when the teams are swapped, and 
 trained on both versions, so it cannot favour a side.
 """
 
+import functools
 import warnings
 
 import numpy as np
@@ -198,10 +199,10 @@ def features(players, team, ball_xy, usable):
     return np.stack(signed, 1).astype(np.float32), np.stack(plain, 1).astype(np.float32)
 
 
-def training_set(game_numbers=sample_games.GAMES):
+@functools.lru_cache(maxsize=None)                        # the bench asks for each game three times
+def _rows(number):
     inputs, answers = [], []
-    for number in game_numbers:
-        game = sample_games.like_ours(sample_games.load(number), seed=number)
+    for game in sample_games.training_copies(number):
         ball = game["ball_xy"]
         signed, plain = features(game["players"], game["team"], ball, ~np.isnan(ball[:, 0]))
         live = np.where(game["labels"] != "D")[0][::TRAIN_EVERY]
@@ -211,7 +212,12 @@ def training_set(game_numbers=sample_games.GAMES):
     return np.concatenate(inputs), np.concatenate(answers)
 
 
-def fit(game_numbers=sample_games.GAMES):
+def training_set(game_numbers=sample_games.TRAINING):
+    rows = [_rows(number) for number in game_numbers]
+    return np.concatenate([r[0] for r in rows]), np.concatenate([r[1] for r in rows])
+
+
+def fit(game_numbers=sample_games.TRAINING):
     model = HistGradientBoostingClassifier(max_iter=400, learning_rate=0.05, min_samples_leaf=200,
                                            l2_regularization=1.0, random_state=0)
     return model.fit(*training_set(game_numbers))

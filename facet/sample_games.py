@@ -1,10 +1,15 @@
-"""Metrica's open sample games: other matches, with events, used to train and tune.
+"""Other matches with known possession, used to train and tune. None is the competition match,
+and nothing here touches its ground truth.
 
-Source: https://github.com/metrica-sports/sample-data (games 1, 2 and 3). They are public, they
-are not the competition match, and their labels come from Metrica's own event data. Nothing here
-touches the competition match's ground truth.
+Metrica's open sample games 1, 2 and 3 (https://github.com/metrica-sports/sample-data): labels
+from Metrica's own event data. The bench scores on these.
 
-    python -m facet.sample_games     downloads the files into data/external/metrica/
+Seven Bundesliga matches of the 2022/23 season (Bassek et al., "An integrated dataset of
+spatiotemporal and event data in elite soccer", https://doi.org/10.6084/m9.figshare.28196177,
+CC BY): the official tracking carries, on every frame, which team has the ball and whether it is
+in play. Used for training only.
+
+    python -m facet.sample_games     downloads the files into data/external/ (about 2.9 GB)
 """
 
 import io
@@ -16,7 +21,7 @@ import urllib.request
 import numpy as np
 import pandas as pd
 
-from facet.load import FPS
+from facet.load import CACHE_DIR, FPS
 from games import DATA_DIR
 
 FOLDER = os.path.join(DATA_DIR, "external", "metrica")
@@ -25,7 +30,16 @@ GAMES = (1, 2, 3)
 FILES = {1: ("RawEventsData.csv", "RawTrackingData_Home_Team.csv", "RawTrackingData_Away_Team.csv"),
          2: ("RawEventsData.csv", "RawTrackingData_Home_Team.csv", "RawTrackingData_Away_Team.csv"),
          3: ("events.json", "metadata.xml", "tracking.txt")}
-PITCH = (105.0, 68.0)
+DFL_FOLDER = os.path.join(DATA_DIR, "external", "dfl")
+DFL_URL = "https://ndownloader.figshare.com/files/"
+DFL_FILES = {"J03WMX": (51643475, 51643514), "J03WN1": (51643472, 51643517),     # match: its
+             "J03WOH": (51643478, 51643520), "J03WOY": (51643481, 51643523),     # information and
+             "J03WPY": (51643487, 51643526), "J03WQQ": (51643484, 51643529),     # positions files
+             "J03WR9": (51643490, 51643532)}
+DFL = tuple(DFL_FILES)
+TRAINING = GAMES + DFL
+DRAWS = 2               # times each game is roughened for training, each with different noise
+PITCH = (105.0, 68.0)   # of every game here
 OWNING = ("SET PIECE", "PASS", "CARRY", "SHOT", "RECOVERY", "BALL LOST")   # events naming the owner
 
 # The sample games are hand-corrected: their ball is glued to whoever has it and never lost in
@@ -63,6 +77,13 @@ def download():
             if not os.path.exists(_path(game, name)):
                 urllib.request.urlretrieve("{0}Sample_Game_{1}/Sample_Game_{1}_{2}".format(
                     URL, game, name), _path(game, name))
+    os.makedirs(DFL_FOLDER, exist_ok=True)
+    for match, numbers in DFL_FILES.items():
+        for kind, number in zip(("info", "positions"), numbers):
+            path = os.path.join(DFL_FOLDER, "{}_{}.xml".format(kind, match))
+            if not os.path.exists(path):
+                urllib.request.urlretrieve(DFL_URL + str(number), path + ".part")
+                os.rename(path + ".part", path)          # a broken download leaves no file behind
 
 
 def _speed(xy, half_window=12):
@@ -149,19 +170,73 @@ def _epts_game(game):
     return xy, team, rows[:, -2:], period, events
 
 
-def load(game):
-    """dict: players [T,n,3], ball_xy [T,2] (metres), team [n], labels [T] of 'H' 'A' 'D',
-    period [T]."""
-    download()
-    xy, team, ball, period, events = (_epts_game if game == 3 else _csv_game)(game)
-    n = len(xy)
-    # In hand-corrected tracking the ball is absent exactly while it is dead: it vanishes one
-    # frame after the stopping event and returns at the restart. Shorter holes are dropouts.
-    dead = np.isnan(ball[:, 0])
+def _dfl_game(match):
+    """One Bundesliga match, in the layout load() returns. Parsing 400 MB of XML takes a while,
+    so the arrays are kept in data/cache/."""
+    cache = os.path.join(CACHE_DIR, "dfl_{}.npz".format(match))
+    if not os.path.exists(cache):
+        info = open(os.path.join(DFL_FOLDER, "info_{}.xml".format(match))).read()
+        home = re.search(r'HomeTeamId="([^"]+)"', info).group(1)
+        text = open(os.path.join(DFL_FOLDER, "positions_{}.xml".format(match))).read()
+        tracks = {}                                       # (half, team, person) -> its frames
+        for half, team, person, body in re.findall(
+                r'<FrameSet GameSection="(firstHalf|secondHalf)"[^>]*TeamId="([^"]+)" '
+                r'PersonId="([^"]+)">(.*?)</FrameSet>', text, re.S):
+            if team != "referee":
+                flags = r'[^>]*?BallPossession="(\d)" BallStatus="(\d)"' if team == "BALL" else ""
+                tracks[half, team, person] = np.array(re.findall(
+                    r'N="(\d+)"[^>]*? X="([-\d.]+)" Y="([-\d.]+)"' + flags, body), np.float64)
+        people = sorted({key[1:] for key in tracks if key[1] != "BALL"})
+        parts = []
+        for period, half in ((1, "firstHalf"), (2, "secondHalf")):
+            ball = next(rows for key, rows in tracks.items() if key[:2] == (half, "BALL"))
+            first, n = int(ball[0, 0]), int(ball[-1, 0] - ball[0, 0]) + 1
+            xy, flags = np.full((n, len(people) + 1, 2), np.nan), np.zeros((n, 2), np.int8)
+            flags[ball[:, 0].astype(int) - first] = ball[:, 3:]
+            for (its_half, team, person), rows in tracks.items():
+                if its_half == half:
+                    at = rows[:, 0].astype(int) - first
+                    ok = (at >= 0) & (at < n)
+                    slot = len(people) if team == "BALL" else people.index((team, person))
+                    xy[at[ok], slot] = rows[ok, 1:3]
+            parts.append((xy, flags, np.full(n, period, np.int8)))
+        xy, flags, period = (np.concatenate(column) for column in zip(*parts))
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        np.savez_compressed(                              # the origin is the centre spot
+            cache, xy=(xy + np.array(PITCH) / 2).astype(np.float32), period=period,
+            team=np.array([0 if team == home else 1 for team, _ in people], np.int8),
+            home_has_it=flags[:, 0] == 1, in_play=flags[:, 1] == 1)
+    saved = np.load(cache)
+    dead = _stoppages(~saved["in_play"])
+    ball = saved["xy"][:, -1].astype(np.float64)
+    ball[dead] = np.nan                                   # as in Metrica's games: no ball while dead
+    return {"players": with_speed(saved["xy"][:, :-1].astype(np.float64)), "ball_xy": ball,
+            "team": saved["team"], "period": saved["period"],
+            "labels": _only_controlled(np.where(dead, "D", np.where(saved["home_has_it"], "H",
+                                                                    "A")))}
+
+
+def _stoppages(dead):
+    """Dead frames, without the runs under a second: those are dropouts, not stoppages."""
+    dead = dead.copy()
     edges = np.diff(np.r_[0, dead.astype(np.int8), 0])
     for start, end in zip(np.where(edges == 1)[0], np.where(edges == -1)[0]):
         if end - start < FPS:
             dead[start:end] = False
+    return dead
+
+
+def load(game):
+    """dict: players [T,n,3], ball_xy [T,2] (metres), team [n], labels [T] of 'H' 'A' 'D',
+    period [T]."""
+    download()
+    if game in DFL:
+        return _dfl_game(game)
+    xy, team, ball, period, events = (_epts_game if game == 3 else _csv_game)(game)
+    n = len(xy)
+    # In hand-corrected tracking the ball is absent exactly while it is dead: it vanishes one
+    # frame after the stopping event and returns at the restart. Shorter holes are dropouts.
+    dead = _stoppages(np.isnan(ball[:, 0]))
     owner = np.full(n + 1, -1, dtype=np.int8)
     for is_home, kind, _, start, _ in sorted(events, key=lambda e: e[3]):
         if kind in OWNING:
@@ -232,8 +307,14 @@ def like_ours(game, seed):
     return dict(game, ball_xy=ball)
 
 
+def training_copies(game):
+    """One game roughened DRAWS times. Different noise each time teaches the models what is noise."""
+    data = load(game)
+    return [like_ours(data, seed=TRAINING.index(game) + 1 + 1000 * draw) for draw in range(DRAWS)]
+
+
 if __name__ == "__main__":
-    for number in GAMES:
+    for number in TRAINING:
         game = load(number)
         labels = game["labels"]
         starts = np.r_[True, labels[1:] != labels[:-1]]
