@@ -24,6 +24,16 @@ files are left unchanged so organiser fixes merge cleanly with `git pull upstrea
    .venv/bin/python starter/baseline.py            # needs the data; rebuilds the baselines
    ```
 
+4. **Look at the data** (writes clips to `data/viz/`, never upload them anywhere):
+
+   ```bash
+   .venv/bin/python tools/viewer.py --start 11185 --seconds 20 --labels evaluation/results/baseline_smooth50.csv
+   ```
+
+   You get a timeline (ball speed, player speed, when the ball is missing, labels), a pitch clip, and
+   the tracking drawn over the tactical video. A ball in the air is drawn in the wrong place on the
+   video, because the homography assumes everything is on the ground.
+
 **Rules we follow** (see [RULES.md](RULES.md)):
 - Every label comes out of code. There is no hand labelling or hand correction of this game.
 - The public 5-minute ground truth is only for checking that the pipeline runs correctly. We do
