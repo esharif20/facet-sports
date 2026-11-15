@@ -6,6 +6,7 @@ game.
 
     python -m facet.bench          the current settings
     python -m facet.bench sweep    a grid around them
+    python -m facet.bench restarts with and without Smart Tagging restarts (facet.restarts)
 """
 
 import itertools
@@ -14,7 +15,7 @@ import sys
 
 import numpy as np
 
-from facet import dead, decode, owner, sample_games
+from facet import dead, decode, owner, restarts, sample_games
 from facet.load import ROOT
 
 sys.path.insert(0, os.path.join(ROOT, "evaluation"))
@@ -29,13 +30,28 @@ def prepare(number):
     game.update(
         dead=dead.dead_evidence(dead.fit(others), game["players"], xy, sample_games.PITCH),
         owner=owner.team_evidence(owner.fit(others), game["players"], game["team"], xy,
-                                  ~np.isnan(xy[:, 0])))
+                                  ~np.isnan(xy[:, 0])),
+        tagged=restarts.like_smart_tagging(game["restarts"], game["labels"], seed=200 + number))
+    game["tagged_sided"] = restarts.with_throw_in_sides(game["tagged"], game["players"],
+                                                        game["team"], sample_games.PITCH)
+    game["goal_mask"] = restarts.goal_stoppages(
+        len(xy), restarts.goals_like_smart_tagging(game["goals"], seed=300 + number))
     return game
 
 
 def score(game, switch_team=decode.SWITCH_TEAM, switch_dead=decode.SWITCH_DEAD,
-          team_scale=decode.TEAM_SCALE, dead_scale=decode.DEAD_SCALE):
-    emit = decode.emissions(game["owner"], game["dead"], team_scale, dead_scale)
+          team_scale=decode.TEAM_SCALE, dead_scale=decode.DEAD_SCALE, use_restarts=False,
+          restart_dead=restarts.DEAD_WEIGHT, restart_team=restarts.TEAM_WEIGHT,
+          throw_in_sides=False, goals=False):
+    team, stopped = game["owner"], game["dead"]
+    if use_restarts:
+        tagged = game["tagged_sided"] if throw_in_sides else game["tagged"]
+        add_team, add_dead = restarts.evidence(len(team), tagged, restart_dead, restart_team)
+        team, stopped = team + add_team, stopped + add_dead
+    if goals:
+        stopped = stopped.copy()
+        stopped[game["goal_mask"]] = 1000.0
+    emit = decode.emissions(team, stopped, team_scale, dead_scale)
     truth, guess = [], []
     for period in (1, 2):
         rows = game["period"] == period
@@ -54,10 +70,37 @@ def report(games, **settings):
         sum(r[2] for r in rows), sum(r[3] for r in rows)), flush=True)
 
 
+def throw_in_check(games):
+    """How often the side read from tracking is given, and right, on the true throw-ins (at a
+    shifted time, as Smart Tagging would give it)."""
+    rng = np.random.default_rng(0)
+    total = given = right = 0
+    for game in games:
+        for frame, side, kind in game["restarts"]:
+            if restarts.is_throw_in(kind):
+                shifted = int(round(frame + rng.normal(0, restarts.JITTER)))
+                guess = restarts.throw_in_side(game["players"], game["team"], shifted,
+                                               sample_games.PITCH)
+                total += 1
+                given += guess is not None
+                right += guess == side
+    print("throw-ins {}  side given {} ({:.0%})  right {} ({:.0%} of those given)".format(
+        total, given, given / max(total, 1), right, right / max(given, 1)), flush=True)
+
+
 if __name__ == "__main__":
     prepared = [prepare(number) for number in sample_games.GAMES]
     report(prepared)
+    report(prepared, use_restarts=True)
+    report(prepared, use_restarts=True, throw_in_sides=True)
+    report(prepared, use_restarts=True, goals=True)
+    report(prepared, use_restarts=True, throw_in_sides=True, goals=True)   # what facet.run does
+    throw_in_check(prepared)
     if sys.argv[1:] == ["sweep"]:
         for values in itertools.product((3, 5, 8, 12), (30, 60, 100), (0.5, 1.0), (0.5, 1.0)):
             report(prepared, **dict(zip(("switch_team", "switch_dead", "team_scale",
                                          "dead_scale"), values)))
+    if sys.argv[1:] == ["restarts"]:
+        for dead_weight, team_weight in itertools.product((0.5, 1.0, 2.0, 4.0),
+                                                          (0.0, 0.5, 1.0, 2.0)):
+            report(prepared, use_restarts=True, restart_dead=dead_weight, restart_team=team_weight)
