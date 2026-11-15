@@ -72,3 +72,6 @@ env/
 *.npz
 *.npy
 cache/
+
+# Jupyter
+.ipynb_checkpoints/
