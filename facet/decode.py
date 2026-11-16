@@ -8,7 +8,7 @@ import numpy as np
 
 H, A, D = 0, 1, 2
 # Chosen on training matches the models had not seen, never on the competition ground truth.
-SWITCH_TEAM = 3.0
+SWITCH_TEAM = 5.0
 SWITCH_DEAD = 20.0
 TEAM_SCALE = 0.5       # neighbouring frames repeat each other, so evidence may need shrinking
 DEAD_SCALE = 0.5
