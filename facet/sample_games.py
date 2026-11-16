@@ -4,6 +4,10 @@ and nothing here touches its ground truth.
 Metrica's open sample games 1, 2 and 3 (https://github.com/metrica-sports/sample-data): labels
 from Metrica's own event data. The bench scores on these.
 
+Labels are taken exactly as the source names them, with nothing smoothed, because that is how
+the challenge says its ground truth is made. Its public window shows possessions under a second
+between two spells of the other team, and so do these matches.
+
 Seven Bundesliga matches of the 2022/23 season (Bassek et al., "An integrated dataset of
 spatiotemporal and event data in elite soccer", https://doi.org/10.6084/m9.figshare.28196177,
 CC BY): the official tracking carries, on every frame, which team has the ball and whether it is
@@ -46,11 +50,6 @@ OWNING = ("SET PIECE", "PASS", "CARRY", "SHOT", "RECOVERY", "BALL LOST")   # eve
 # play. Ours is automatic. These settings damage the sample ball until it looks like ours. They
 # were set by matching two things measured on our tracking with no labels involved: how far the
 # nearest player is from the ball (median 1.65 m) and how smoothly the ball moves.
-CONTROLLED = 2.0        # s: a shorter touch between two spells of the other team does not count.
-#                         The challenge asks for controlled possession ("a player keeps the ball
-#                         for a few seconds"); with 2 s the possession lengths also come out
-#                         close to those published for the competition's public ground truth.
-
 SMOOTH = 9              # frames: our tracker rounds off sharp changes of direction
 WANDER = 0.8            # m: how far the tracked ball strays from the real one
 WANDER_FRAMES = 25      # how slowly that error changes
@@ -97,25 +96,6 @@ def _speed(xy, half_window=12):
 def with_speed(xy):
     """[T,n,2] positions -> [T,n,3] with speed, the layout facet.load uses."""
     return np.concatenate([xy, _speed(xy)[..., None]], axis=-1).astype(np.float32)
-
-
-def _only_controlled(labels):
-    """Hand a brief touch back to the team around it.
-
-    The events record every touch, but the challenge counts only controlled possession: "a simple
-    touch of the ball without control" is not a change. A spell shorter than CONTROLLED with the
-    other team on both sides is such a touch.
-    """
-    labels = labels.copy()
-    while True:
-        edges = np.r_[0, np.where(labels[1:] != labels[:-1])[0] + 1, len(labels)]
-        first = labels[edges[:-1]]
-        brief = [i for i in range(1, len(first) - 1)
-                 if first[i] != "D" and edges[i + 1] - edges[i] < CONTROLLED * FPS
-                 and first[i - 1] == first[i + 1] and first[i - 1] not in ("D", first[i])]
-        if not brief:
-            return labels
-        labels[edges[brief[0]]:edges[brief[0] + 1]] = first[brief[0] - 1]
 
 
 def _csv_game(game):
@@ -212,8 +192,7 @@ def _dfl_game(match):
     ball[dead] = np.nan                                   # as in Metrica's games: no ball while dead
     return {"players": with_speed(saved["xy"][:, :-1].astype(np.float64)), "ball_xy": ball,
             "team": saved["team"], "period": saved["period"],
-            "labels": _only_controlled(np.where(dead, "D", np.where(saved["home_has_it"], "H",
-                                                                    "A")))}
+            "labels": np.where(dead, "D", np.where(saved["home_has_it"], "H", "A"))}
 
 
 def _stoppages(dead):
@@ -244,7 +223,7 @@ def load(game):
     for frame in range(1, n + 1):                        # the owner keeps the ball until the next
         if owner[frame] < 0:
             owner[frame] = owner[frame - 1]
-    labels = _only_controlled(np.where(dead, "D", np.where(owner[1:] == 0, "H", "A")))
+    labels = np.where(dead, "D", np.where(owner[1:] == 0, "H", "A"))
     return {"players": with_speed(xy * PITCH), "ball_xy": ball * PITCH, "team": team,
             "labels": labels, "period": period}
 

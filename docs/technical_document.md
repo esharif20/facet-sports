@@ -52,8 +52,11 @@ Metrica's three sample games, and features and model sizes were kept or dropped 
 decoder penalties were set on the same kind of check over all ten training matches.
 
 In a leave-one-match-out check over all ten training matches, run during development, the
-pipeline scores `spellF1` 0.72 and `macroF1` 0.91 (per match, `spellF1` 0.67 to 0.79). The second
-look raised `spellF1` on every one of the ten.
+pipeline scores `spellF1` 0.65 and `macroF1` 0.91 against labels taken exactly as the source
+names them. The second look raised `spellF1` on every one of the ten. Training on unsmoothed
+labels instead of the 2 s rule was worth 0.04 in that check. Scored instead against labels
+smoothed with the 2 s rule, the submitted pipeline reaches 0.71 against 0.72 for one trained on
+smoothed labels, so the choice costs little if the challenge's labels are smoother than ours.
 
 ## Assets used, and dropped
 
@@ -100,17 +103,20 @@ published data into H, A, D:
   team of the last event that names an owner (set piece, pass, carry, shot, recovery, ball lost).
 - **Bundesliga matches:** D where the ball-in-play flag is off for at least 1 s; otherwise the
   possession flag.
-- **Both:** a spell shorter than 2 s between two spells of the other team is given back to that
-  team, because the challenge asks for controlled possession.
+- **Both:** nothing is smoothed afterwards. An earlier version gave any spell shorter than 2 s
+  between two spells of the other team back to that team, as our reading of "controlled
+  possession". The public window, which the challenge names as the reference, contains such
+  spells of 0.8 s and 1.3 s, so the rule was removed.
 
 ## Possession rules implemented
 
 The rules are learned from the training labels above, so they are the rules of those labels:
 
-- **Change of possession** happens when the other team controls the ball, not when it touches
-  it. A deflection, a blocked pass or a challenge that the first team wins does not change the
-  label. In the training labels this is the 2 s rule above; in the decoder it is the penalty for
-  changing team.
+- **Change of possession** happens where the training labels put it: at the first event that
+  names the other team as owner (Metrica) or where the official possession flag changes
+  (Bundesliga). A deflection or a challenge the first team wins is not such an event. Brief
+  possessions count, down to under a second. The decoder's penalty for changing team keeps a
+  single odd frame from becoming one.
 - **Loose balls and passes in flight** stay with the team that last had the ball until the other
   team controls it.
 - **Dead ball** runs from the whistle or the ball leaving the pitch until the restart is taken,
@@ -120,8 +126,11 @@ The rules are learned from the training labels above, so they are the rules of t
 
 ## Limitations
 
-- **Short possessions.** On the bench we recover most possessions longer than 5 s and fewer than
-  half of those under 5 s. A short spell between two long ones gives little evidence.
+- **Short possessions.** We recover most possessions longer than 5 s and fewer than half of
+  those under 5 s. A short spell between two long ones gives little evidence, and missing it
+  also breaks the match of the two spells around it.
+- **Short stoppages.** On the training matches we find 63% of stoppages under 5 s, 86% of those
+  between 5 and 10 s and nearly all longer ones.
 - **Hidden or disputed ball.** Ownership accuracy on the bench is about 0.94 with the ball seen
   and 0.87 without. Team shape helps but does not replace the ball.
 - **Ball in the air.** The homography places an airborne ball at the wrong ground position. We
