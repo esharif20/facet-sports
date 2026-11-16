@@ -1,145 +1,182 @@
-# Facet Sports — technical document
+# Facet Sports technical document
 
-More than a Hack 2027, Phase 1: ball possession for BAR vs ATH.
+More than a Hack 2027, Phase 1. Ball possession for BAR vs ATH.
 
 ## Approach
 
-We label each frame as home possession (H), away possession (A) or dead ball (D) in five steps.
+Every frame gets one of three labels: home possession (H), away possession (A) or dead ball (D).
+We never output X on a graded frame. The pipeline has four parts.
 
-1. **One ball track from two cameras.** The broadcast tracking is synchronised to the tactical
-   tracking by sliding one ball track along the other (the offset of each half is found by the
-   code). The tactical ball is used where it exists and the broadcast ball fills its gaps. Where
-   the two feeds disagree by more than 3 m the ball is marked "disputed" and its position is not
-   trusted: either it is in the air, or one tracker follows something else.
-2. **Two classifiers per frame**, both gradient-boosted decision trees
-   (`HistGradientBoostingClassifier`, 400 trees each):
-   - *Dead ball:* is play stopped? Inputs: how fast the players move, whether the ball is seen,
-     whether it left the pitch, where it was last seen and next seen, how the players are
-     arranged, and the same quantities up to 15 s before and after.
-   - *Ownership:* which team has the ball? Inputs: which team's player is nearest the ball, the
-     stretches each team spends in contact with it, touches (sudden changes of ball velocity next
-     to a player), which way play drifts, and how the two teams sit (territory, spread and speed
-     of each team). The last group decides ownership while the ball cannot be seen.
-3. **A second look at ownership.** A third classifier of the same kind reads the first two's
-   answers up to 7 s either side of the frame, and how long each run of answers for the same team
-   lasts, and corrects the frame's ownership. It learns, for example, that a second of weak
-   evidence for one team between two long spells of the other is usually not a possession. It is
-   trained on answers the first two gave for matches they had not seen (five folds over the
-   training matches), so it learns from the mistakes they make on a new match.
-4. **A decoder.** A three-state Viterbi (H, A, D) finds the best sequence of states for each
-   half. Changing state costs a fixed penalty, so a change only happens when the evidence after
-   it, summed over frames, outweighs the penalty. This turns flickering per-frame probabilities
-   into whole possessions, which is what `spellF1` rewards.
-5. **No X on graded frames.** Every frame of both halves gets H, A or D.
+**One ball track from two cameras.** We synchronise the broadcast tracking to the tactical
+tracking by sliding one ball track along the other. The code finds the offset for each half, so
+nothing is typed in. The tactical ball is used where it exists and the broadcast ball fills its
+gaps. Where the two feeds put the ball more than 3 m apart we mark it "disputed" and stop
+trusting its position. Either the ball is in the air or one tracker is following something else,
+and we cannot tell which.
 
-**Why learned models rather than rules.** Our first version was hand rules (nearest player with
-hysteresis, dead ball when the ball is missing and players walk). It scored 0.41 `spellF1` on the
-public window. Rules could not express when a touch counts as control or when a visible ball is
-still dead. Both are learned easily from matches where the answer is known.
+**Two classifiers that judge each frame.** Both are gradient-boosted decision trees
+(scikit-learn's `HistGradientBoostingClassifier`, 400 trees each). The dead-ball classifier
+answers "is play stopped?". It looks at how fast the players move, whether the ball is seen,
+whether it left the pitch, where it was last seen and next seen, how the players are arranged,
+and all of that again up to 15 s before and after. The ownership classifier answers "which team
+has the ball?". It looks at which team's player is nearest the ball, the stretches each team
+spends in contact with it, touches (a sudden change of ball velocity next to a player), which way
+play is drifting, and how the two teams sit on the pitch. That last group matters most when the
+ball cannot be seen.
 
-**Why train on other matches.** The rules forbid labels from the provided game, so the models
-are trained on ten other matches (see Training data). Their tracking is clean and ours is
-automatic, so each training match is first roughened until its ball looks like ours: positions
-are smoothed, a slowly wandering error of 0.8 m is added, the ball is hidden on a quarter of live
-frames in stretches of 3 to 15 s, and a visible ball is drawn into some stoppages. These settings
-were chosen by matching statistics of our tracking that need no labels (distance from the ball to
-the nearest player, ball acceleration, how often the ball is seen). Each training match is
-roughened twice with different noise.
+**A second look at ownership.** A third classifier of the same kind reads the first two's answers
+up to 7 s either side of the frame, plus how long each run of answers for one team lasts, and
+corrects the frame's ownership. It learns things like "a second of weak evidence for one team
+between two long spells of the other is usually not a possession". We train it on answers the
+first two gave for matches they had not seen, using five folds over the training matches, so what
+it learns is the mistakes they make on a new match.
 
-**How settings were chosen.** Always on training matches scored with the official metric by
-models that never saw them, never on the provided game. `python -m facet.bench` does this for
-Metrica's three sample games, and features and model sizes were kept or dropped there. The
-decoder penalties were set on the same kind of check over all ten training matches.
+**A decoder.** A three-state Viterbi (H, A, D) picks the best sequence of states for each half.
+Changing state costs a fixed penalty, so the label only changes when the evidence after the
+change, added up over frames, beats the penalty. This is what turns flickering per-frame
+probabilities into whole possessions, and whole possessions are what `spellF1` counts.
 
-In a leave-one-match-out check over all ten training matches, run during development, the
+### Why learned models and not rules
+
+Our first version was hand rules: nearest player with hysteresis, and dead ball when the ball is
+missing and the players walk. It scored 0.41 `spellF1` on the public window. We could not write a
+rule for when a touch counts as control, or for when a ball that is plainly visible is still
+dead. A model picks both up from matches where the answer is known.
+
+### Why train on other matches
+
+The rules forbid labels from the provided game, so we train on ten other matches (listed under
+Training data). Their tracking is clean and ours is automatic. A model trained on clean tracking
+does badly on ours, so we first damage each training match until its ball looks like our ball. We
+smooth the positions, add a slowly wandering error of 0.8 m, hide the ball on a quarter of live
+frames in stretches of 3 to 15 s, and draw a visible ball into some of the stoppages. We set those
+numbers by matching statistics of our own tracking that need no labels, such as the distance from
+the ball to the nearest player and how often the ball is seen. Each training match is damaged
+twice with different noise.
+
+### How we chose settings
+
+Never on the provided game. Every choice was made on training matches, scored with the official
+metric by models that had not seen them. `python -m facet.bench` runs that check on Metrica's
+three sample games, and it is where we kept or dropped features. The decoder penalties came from
+the same kind of check run over all ten training matches.
+
+That ten-match check was a development script and is not in the repository. In it the submitted
 pipeline scores `spellF1` 0.65 and `macroF1` 0.91 against labels taken exactly as the source
-names them. The second look raised `spellF1` on every one of the ten. Training on unsmoothed
-labels instead of the 2 s rule was worth 0.04 in that check. Scored instead against labels
-smoothed with the 2 s rule, the submitted pipeline reaches 0.716 against 0.719 for one trained
-on smoothed labels, so the choice costs little if the challenge's labels are smoother than ours.
+names them. The second look raised `spellF1` on all ten matches.
 
-## Assets used, and dropped
+We do not expect the same number on the provided game. The training matches only imitate our
+tracking errors, and the public window has 17 possessions, which is too few to check a score
+against.
+
+## Assets we used and dropped
 
 | Asset | Use |
 |---|---|
 | Tactical tracking | Players and ball. The main input. |
 | Broadcast tracking | Ball only, synchronised to tactical frames. Fills gaps and flags disputed frames. |
-| Smart Tagging | One tag only: "Kick Off (Start)". Frames of a half before it are dead. |
-| Homography, videos | Not used in the submitted pipeline (see below). |
+| Smart Tagging | One tag, "Kick Off (Start)". Frames of a half before it are dead. |
+| Homography, videos | Not used in the submitted pipeline. See below. |
 
-Tried and dropped:
+Things we tried and dropped:
 
-- **Ball height from two cameras.** Intersecting the two cameras' sight lines gave heights that
-  looked plausible, but checking video frames showed the large heights were a tracker following
-  the wrong object, not a ball in the air. Replaced by the disputed flag.
-- **Our own ball detector.** A small convolutional network (6 layers, about 110,000 weights),
-  trained with no human labels on image patches where both trackers agree on the ball. It found
-  the ball on held-out patches (recall 0.93, precision 0.91) and raised the share of frames with a
-  usable ball from 54% to 70%. It did not improve the labels: the trackers already see the ball
-  on 94% of live frames, and two thirds of the new ball frames fall in stoppages. A bench test
-  with the hidden-ball share lowered to match showed a ceiling of +0.009 `spellF1`. It also took
-  100 minutes to run and would have made an identical rerun harder to guarantee.
-- **Smart Tagging as a possession hint** (team-labelled phases, set-piece team as restart team).
-  No gain where it could be measured, and the tag times do not coincide with the restart.
-- **A change-of-possession classifier** that lowers the decoder's penalty at likely turnovers:
-  +0.009 on the bench, within noise.
-- **Published possession statistics for this match.** Not used: human-produced data about the
-  provided game is forbidden.
+**Ball height from two cameras.** We intersected the two cameras' sight lines to get the ball's
+height, and the numbers looked right. They were not. When we pulled the video frames, the tall
+"flights" were a tracker sitting on the wrong object while the ball rolled along the ground
+somewhere else. We replaced the height with the disputed flag.
+
+**Our own ball detector.** A small convolutional network, 6 layers and about 110,000 weights,
+trained without human labels on image patches where both trackers agree on the ball. It worked as
+a detector (recall 0.93 and precision 0.91 on held-out patches) and raised the share of frames
+with a usable ball from 54% to 70%. It did not improve the labels. The trackers already see the
+ball on 94% of live frames, and two thirds of the detector's new ball frames fall in stoppages,
+where ownership does not matter. A bench test with fewer hidden-ball frames put the ceiling at
++0.009 `spellF1`. It also took 100 minutes to run and would have made an identical rerun harder
+to guarantee, so it is not in the submitted pipeline.
+
+**Smart Tagging as a possession hint.** We tried the team-labelled phases as a prior and the
+set-piece team as the restart team. Neither helped where we could measure it, and the tag times
+do not line up with the restart.
+
+**A change-of-possession classifier** that lowers the decoder's penalty at likely turnovers. It
+gained 0.009 on the bench, which is inside the noise.
+
+**A decoder with duration priors** (semi-Markov). It was worse than the plain Viterbi on the
+training matches we tried it on.
+
+**Published possession statistics for this match.** A teammate found them. We did not use them,
+because human-produced data about the provided game is forbidden.
 
 ## Training data
 
-No label of any kind comes from the provided game. Its public 5-minute ground truth was used
-only to check that the pipeline runs and that labels mean what we think.
+No label of any kind comes from the provided game. We used its public 5-minute ground truth for
+two things only: to check that the pipeline runs, and to check that our labels mean what the
+challenge's labels mean.
 
 | Dataset | Matches | Source | Labels |
 |---|---|---|---|
 | Metrica Sports sample data, games 1 to 3 | 3 | https://github.com/metrica-sports/sample-data | Tracking and event data published by Metrica. |
 | Bassek et al., "An integrated dataset of spatiotemporal and event data in elite soccer" | 7 (Bundesliga and 2. Bundesliga, 2022/23) | https://doi.org/10.6084/m9.figshare.28196177, CC BY | Official DFL tracking, which carries on every frame the team in possession and whether the ball is in play. |
 
-About 1.4 million frames in total. Nobody in our team labelled anything. Our code turns the
-published data into H, A, D:
+That is about 1.4 million frames. Nobody in our team labelled anything. Our code turns the
+published data into H, A and D like this.
 
-- **Metrica games:** D where the hand-corrected ball is absent for at least 1 s; otherwise the
-  team of the last event that names an owner (set piece, pass, carry, shot, recovery, ball lost).
-- **Bundesliga matches:** D where the ball-in-play flag is off for at least 1 s; otherwise the
-  possession flag.
-- **Both:** nothing is smoothed afterwards. An earlier version gave any spell shorter than 2 s
-  between two spells of the other team back to that team, as our reading of "controlled
-  possession". The public window, which the challenge names as the reference, contains such
-  spells of 0.8 s and 1.3 s, so the rule was removed.
+For the Metrica games, a frame is D where the hand-corrected ball is absent for at least a
+second. Otherwise it belongs to the team of the last event that names an owner (set piece, pass,
+carry, shot, recovery, ball lost).
 
-## Possession rules implemented
+For the Bundesliga matches, a frame is D where the official ball-in-play flag is off, and
+otherwise it takes the official possession flag.
 
-The rules are learned from the training labels above, so they are the rules of those labels:
+Nothing is smoothed afterwards. An earlier version of ours handed any spell shorter than 2 s that
+sat between two spells of the other team back to that team. That was our reading of "controlled
+possession", and it was wrong. The public window, which the challenge names as the reference,
+contains spells of 0.8 s and 1.3 s of exactly that kind, so we removed the rule. On the ten-match
+check, training on unsmoothed labels was worth 0.04 `spellF1` when scored against unsmoothed
+labels and cost 0.003 when scored against smoothed ones.
 
-- **Change of possession** happens where the training labels put it: at the first event that
-  names the other team as owner (Metrica) or where the official possession flag changes
-  (Bundesliga). A deflection or a challenge the first team wins is not such an event. Brief
-  possessions count, down to under a second. The decoder's penalty for changing team keeps a
-  single odd frame from becoming one.
-- **Loose balls and passes in flight** stay with the team that last had the ball until the other
-  team controls it.
-- **Dead ball** runs from the whistle or the ball leaving the pitch until the restart is taken,
-  even when the ball is visible and being carried or placed. The time before each half's kickoff
-  is dead.
-- **Restarts** belong to the team that first controls the ball after the restart.
+## Possession rules we implemented
+
+We did not write possession rules. The models learn them from the training labels, so the rules
+are those of the labels.
+
+A change of possession happens where the training labels put it. In the Metrica games that is the
+first event naming the other team as owner, and in the Bundesliga matches it is where the
+official possession flag changes. A deflection, or a challenge the team in possession wins, is
+not such an event. Brief possessions count, down to under a second. The decoder's penalty for
+changing team stops a single odd frame from becoming one.
+
+Loose balls and passes in flight stay with the team that last had the ball until the other team
+takes it.
+
+Dead ball runs from the whistle, or from the ball leaving the pitch, until the restart is taken.
+That holds even when the ball is visible and being carried back or placed. The time before each
+half's kickoff is dead, and we find the kickoff from the Smart Tagging "Kick Off (Start)" tag.
+
+After a restart the ball belongs to whichever team the models see with it first.
 
 ## Limitations
 
-- **Short possessions.** We recover most possessions longer than 5 s and fewer than half of
-  those under 5 s. A short spell between two long ones gives little evidence, and missing it
-  also breaks the match of the two spells around it.
-- **Short stoppages.** On the training matches we find 63% of stoppages under 5 s, 86% of those
-  between 5 and 10 s and nearly all longer ones.
-- **Hidden or disputed ball.** Ownership accuracy on the bench is about 0.94 with the ball seen
-  and 0.87 without. Team shape helps but does not replace the ball.
-- **Ball in the air.** The homography places an airborne ball at the wrong ground position. We
-  only flag those frames; we do not reconstruct the flight.
-- **Training matches differ from ours.** Their labelling conventions are not exactly Metrica's
-  for this challenge, and the roughening is a simulation of our tracking errors, not the errors
-  themselves.
-- **With more time:** a decoder that knows typical possession and stoppage lengths, a neural
-  sequence model in place of the second classifier, and a ball track rebuilt in 3D.
+Short possessions are the weak spot. We find most possessions longer than 5 s and fewer than half
+of those under 5 s. A short spell between two long ones leaves little evidence, and missing it
+also breaks the match of the two spells either side.
+
+Short stoppages are next. On the training matches we find 63% of stoppages under 5 s, 86% of
+those between 5 and 10 s, and nearly all longer ones.
+
+When the ball is hidden or disputed, ownership gets worse. On the bench it is right on about 94%
+of frames with the ball seen and 87% without. Team shape helps, but it is no substitute for the
+ball.
+
+We do not handle a ball in the air. The homography puts an airborne ball at the wrong place on
+the ground, and all we do is flag those frames.
+
+The training matches are not our match. Their labelling conventions may differ from the ones
+behind this challenge's ground truth, and our damage to their tracking is a guess at our
+tracker's errors.
+
+With more time we would try a neural sequence model in place of the second classifier, and
+rebuild the ball track in 3D from the two videos.
 
 ## Reproduction
 
@@ -152,8 +189,10 @@ uv pip install --python .venv/bin/python -r requirements.lock
 
 This writes `evaluation/results/facet.csv`, validates it and scores it on the public window. The
 first run downloads the training matches (about 2.9 GB) into `data/external/`. A run takes about
-half an hour, most of it training. Nothing is random at run time: the noise used to roughen the training matches has fixed
-seeds, the classifiers have a fixed seed, and all versions are pinned in `requirements.lock`.
+half an hour, most of it training.
 
-`python -m facet.bench` reproduces the bench numbers, and `python -m pytest tests -q` runs the
-tests.
+Nothing is random at run time. The noise that damages the training matches has fixed seeds, the
+classifiers have a fixed seed, and every version is pinned in `requirements.lock`. We cloned the
+repository fresh, ran it against the data, and got a byte-identical file.
+
+`python -m pytest tests -q` runs the tests.

@@ -1,8 +1,9 @@
-# Facet Sports — our entry
+# Facet Sports
 
 This repository is our team's entry for More than a Hack 2027, built on the official
-challenge repository (kept as the `upstream` remote). Our code lives in `facet/`. The upstream
-files are left unchanged so organiser fixes merge cleanly with `git pull upstream main`.
+challenge repository (kept as the `upstream` remote). Our code lives in `facet/`, and
+[docs/technical_document.md](docs/technical_document.md) explains the method. The upstream files
+are left unchanged so organiser fixes merge cleanly with `git pull upstream main`.
 
 ## Team quickstart
 
@@ -72,8 +73,8 @@ files are left unchanged so organiser fixes merge cleanly with `git pull upstrea
 
 **Rules we follow** (see [RULES.md](RULES.md)):
 - Every label comes out of code. There is no hand labelling or hand correction of this game.
-- The public 5-minute ground truth is only for checking that the pipeline runs correctly. We do
-  not tune anything on it.
+- The public 5-minute ground truth is only for checking that the pipeline runs and that our labels
+  mean what the challenge's labels mean. We do not train or tune on it.
 - Before every push, run `git ls-files | grep -E "_atd\.(txt|xml)|_homography\.csv|_smart_tagging\.xml|\.mp4|\.npz"`.
   It must print nothing.
 
