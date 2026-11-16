@@ -55,8 +55,8 @@ In a leave-one-match-out check over all ten training matches, run during develop
 pipeline scores `spellF1` 0.65 and `macroF1` 0.91 against labels taken exactly as the source
 names them. The second look raised `spellF1` on every one of the ten. Training on unsmoothed
 labels instead of the 2 s rule was worth 0.04 in that check. Scored instead against labels
-smoothed with the 2 s rule, the submitted pipeline reaches 0.71 against 0.72 for one trained on
-smoothed labels, so the choice costs little if the challenge's labels are smoother than ours.
+smoothed with the 2 s rule, the submitted pipeline reaches 0.716 against 0.719 for one trained
+on smoothed labels, so the choice costs little if the challenge's labels are smoother than ours.
 
 ## Assets used, and dropped
 
