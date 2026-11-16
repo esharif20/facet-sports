@@ -7,9 +7,31 @@ are left unchanged so organiser fixes merge cleanly with `git pull upstream main
 
 ## Team quickstart
 
-1. **Put the data in `data/`.** Unpack the files into `data/tactical/` and `data/broadcast/`,
-   keeping their names (layout in [DATA.md](DATA.md)). Everything in `data/` is gitignored. The
-   match data is licensed and this repo is public, so never force-add any of it.
+1. **Add your copy of the organiser-provided match data.** The licensed match data is excluded
+   from this public repository. Use the same FC Barcelona vs Athletic Club bundle supplied for
+   the challenge; no separate upload or import command is needed. From the repository root,
+   unpack or copy the files into this layout, keeping their original names:
+
+   ```text
+   data/
+   ├── tactical/
+   │   ├── BAR-ATH_tactical.mp4
+   │   ├── BAR-ATH_tactical_atd.xml
+   │   ├── BAR-ATH_tactical_atd.txt
+   │   ├── BAR-ATH_tactical_homography.csv
+   │   └── BAR-ATH_tactical_smart_tagging.xml
+   └── broadcast/
+       ├── BAR-ATH_broadcast.mp4
+       ├── BAR-ATH_broadcast_atd.xml
+       ├── BAR-ATH_broadcast_atd.txt
+       └── BAR-ATH_broadcast_homography.csv
+   ```
+
+   If you already keep the bundle elsewhere, set `export MTAH_DATA_DIR="/absolute/path/to/bundle"`
+   in the terminal before running the commands below. Point it at the parent directory containing
+   both `tactical/` and `broadcast/`, not at either recording folder. The pipeline reads the files
+   automatically. See [DATA.md](DATA.md) for asset details. Everything in `data/` is gitignored;
+   do not commit or redistribute the match data.
 
 2. **Environment** (Python 3.11, pinned versions in `requirements.lock`):
 
